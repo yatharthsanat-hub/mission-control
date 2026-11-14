@@ -1,0 +1,31 @@
+{
+  "method": "Cartesian RK4, 0.5 s, convergence checked at 0.25 s",
+  "constantSource": "https://ssd.jpl.nasa.gov/astro_par.html",
+  "frame": "earth-centered-j2000",
+  "initialEpochTdbS": 0,
+  "semiMajorAxisM": 7200000,
+  "eccentricity": 0.05,
+  "elapsedS": 4321,
+  "initialPositionM": [
+    6840000.0,
+    0,
+    0
+  ],
+  "initialVelocityMps": [
+    0,
+    7822.3182845862775,
+    0
+  ],
+  "positionM": [
+    -2452582.609206138,
+    -6880584.661101696,
+    0.0
+  ],
+  "velocityMps": [
+    7017.353521982267,
+    -2128.842487136802,
+    0.0
+  ],
+  "maxPositionConvergenceM": 8.409842848777771e-07,
+  "maxVelocityConvergenceMps": 6.789377948734909e-10
+}
