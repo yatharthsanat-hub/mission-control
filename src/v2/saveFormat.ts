@@ -1,7 +1,10 @@
-import { agencyName, applyCommand, createAgency, maxCommands } from './agency.ts'
+import { agencyName, applyCommand, createAgency, maxCommands, unlockedCapabilities } from './agency.ts'
 import type { Agency, Command } from './agency.ts'
 import { sourceRegistryRevision } from './sources.ts'
 import { orbitModel } from './physics/twoBody.ts'
+import { restoreAssembly } from './assembly/engine.ts'
+import type { Assembly } from './assembly/engine.ts'
+import { partDefinition } from './assembly/catalog.ts'
 
 export const maxSaveSize = 500_000
 const catalogRevision = 'earth-training-1'
@@ -10,6 +13,7 @@ export interface Save {
   id: string
   revision: number
   agency: Agency
+  assembly?: Assembly
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -47,9 +51,9 @@ function decodeCommand(value: unknown): Command {
 
 export function encodeSave(save: Save) {
   const payload = JSON.stringify({
-    schemaVersion: 2, id: save.id, revision: save.revision, catalogRevision,
+    schemaVersion: save.assembly ? 3 : 2, id: save.id, revision: save.revision, catalogRevision,
     sourceRegistryRevision, modelRevision: orbitModel.revision,
-    name: save.agency.name, commands: save.agency.commands,
+    name: save.agency.name, commands: save.agency.commands, assembly: save.assembly,
   })
   return JSON.stringify({ payload, checksum: checksum(payload) })
 }
@@ -65,7 +69,7 @@ export function decodeSave(raw: string): Save {
   const input = original.schemaVersion === 1
     ? { ...original, schemaVersion: 2, sourceRegistryRevision, modelRevision: orbitModel.revision }
     : original
-  if (input.schemaVersion !== 2) throw new Error('Unsupported save schema version.')
+  if (input.schemaVersion !== 2 && input.schemaVersion !== 3) throw new Error('Unsupported save schema version.')
   if (input.catalogRevision !== catalogRevision || input.sourceRegistryRevision !== sourceRegistryRevision ||
     input.modelRevision !== orbitModel.revision) throw new Error('Save requires an unavailable catalog, source registry, or model revision.')
   const id = identifier(input.id)
@@ -83,5 +87,22 @@ export function decodeSave(raw: string): Save {
     applied.add(command.id)
     agency = applyCommand(agency, command)
   }
-  return { id, revision, agency }
+  if (input.schemaVersion === 2) return { id, revision, agency }
+  const assembly = restoreAssembly(input.assembly)
+  const capabilities = unlockedCapabilities(agency)
+  for (const part of assembly.parts) {
+    const required = partDefinition(part.part).capability
+    if (required && !capabilities.includes(required)) throw new Error('Assembly contains a research-locked component.')
+  }
+  return { id, revision, agency, assembly }
+}
+
+export function sameSaveContents(first: string, second: string): boolean {
+  if (first === second) return true
+  try {
+    const canonical = (raw: string) => encodeSave({ ...decodeSave(raw), id: 'comparison', revision: 0 })
+    return canonical(first) === canonical(second)
+  } catch {
+    return false
+  }
 }

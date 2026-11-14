@@ -1,9 +1,14 @@
-import { decodeSave, encodeSave } from './saveFormat.ts'
+import { decodeSave, encodeSave, sameSaveContents } from './saveFormat.ts'
 import type { Save } from './saveFormat.ts'
 
 export interface StoredSave {
   raw: string | undefined
   backup: string | undefined
+  archives: readonly { key: string; raw: string }[]
+}
+
+function archiveRange() {
+  return IDBKeyRange.bound('archive:', 'archive;', false, true)
 }
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -26,8 +31,17 @@ export async function readLocal(): Promise<StoredSave> {
     const store = tx.objectStore('saves')
     const active = store.get('active')
     const backup = store.get('backup')
+    const keys = store.getAllKeys(archiveRange())
+    const values = store.getAll(archiveRange())
     tx.onabort = () => { db.close(); reject(tx.error ?? new Error('Save read failed.')) }
-    tx.oncomplete = () => { db.close(); resolve({ raw: active.result, backup: backup.result }) }
+    tx.oncomplete = () => {
+      db.close()
+      const archives = keys.result.flatMap((key, index) => {
+        const raw: unknown = values.result[index]
+        return typeof key === 'string' && typeof raw === 'string' ? [{ key, raw }] : []
+      })
+      resolve({ raw: active.result, backup: backup.result, archives })
+    }
   })
 }
 
@@ -39,6 +53,7 @@ export async function writeLocal(expected: string | undefined, save: Save, mode:
     const tx = db.transaction('saves', 'readwrite')
     const store = tx.objectStore('saves')
     const active = store.get('active')
+    let result = next
     let reason: Error | undefined
     active.onsuccess = () => {
       if (active.result !== expected) {
@@ -47,6 +62,10 @@ export async function writeLocal(expected: string | undefined, save: Save, mode:
         return
       }
       if (expected !== undefined) {
+        if (mode === 'replace' && sameSaveContents(expected, next)) {
+          result = expected
+          return
+        }
         let readable = false
         try {
           decodeSave(expected)
@@ -60,11 +79,20 @@ export async function writeLocal(expected: string | undefined, save: Save, mode:
           return
         }
         if (readable) store.put(expected, 'backup')
-        if (mode === 'replace') store.put(expected, `archive:${save.id}`)
+        if (mode === 'replace') {
+          const archives = store.getAll(archiveRange())
+          archives.onsuccess = () => {
+            if (!archives.result.some((raw: unknown) => typeof raw === 'string' && sameSaveContents(expected, raw))) {
+              store.add(expected, `archive:${save.id}`)
+            }
+            store.put(next, 'active')
+          }
+          return
+        }
       }
       store.put(next, 'active')
     }
     tx.onabort = () => { db.close(); reject(reason ?? tx.error ?? new Error('Local write failed.')) }
-    tx.oncomplete = () => { db.close(); resolve(next) }
+    tx.oncomplete = () => { db.close(); resolve(result) }
   })
 }

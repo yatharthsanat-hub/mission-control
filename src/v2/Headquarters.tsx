@@ -39,6 +39,7 @@ export function Headquarters() {
   const [stored, setStored] = useState<StoredSave | null>(null)
   const [save, setSave] = useState<Save | null>(null)
   const [candidate, setCandidate] = useState<Save | null>(null)
+  const [restoringArchive, setRestoringArchive] = useState(false)
   const [name, setName] = useState('')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
@@ -78,9 +79,14 @@ export function Headquarters() {
   async function install(next: Save, mode: 'update' | 'replace') {
     if (!stored) throw new Error('Local saves must finish loading before writing.')
     const raw = await writeLocal(stored.raw, next, mode)
-    setStored({ raw, backup: save ? stored.raw : stored.backup })
-    setSave(next)
-    setNotice('Saved on this device.')
+    setSave(decodeSave(raw))
+    setStored({ ...stored, raw, backup: raw === stored.raw || !save ? stored.backup : stored.raw })
+    if (mode === 'replace') {
+      const latest = await readLocal()
+      setStored(latest)
+      setSave(latest.raw === undefined ? null : decodeSave(latest.raw))
+    }
+    setNotice(raw === stored.raw ? 'This save is already active.' : 'Saved on this device.')
     setCandidate(null)
   }
 
@@ -106,7 +112,10 @@ export function Headquarters() {
       <header className="hq-top">
         <div className="hq-shell hq-top-inner">
           <a className="hq-brand" href="#"><span className="hq-mark"><Icon name="orbit" /></span>MISSION CONTROL</a>
-          <a className="hq-nav-link" href="?mode=tutorial">CubeSat tutorial <Icon name="arrow" /></a>
+          <nav className="hq-actions" aria-label="Workspaces">
+            {save && <a className="hq-nav-link" href="?mode=assembly">Vehicle Assembly</a>}
+            <a className="hq-nav-link" href="?mode=tutorial">CubeSat tutorial <Icon name="arrow" /></a>
+          </nav>
         </div>
       </header>
       <main className="hq-shell hq-main" id="headquarters" tabIndex={-1}>
@@ -146,16 +155,30 @@ export function Headquarters() {
               event.target.value = ''
               if (!file) return
               setCandidate(null)
+              setRestoringArchive(false)
               void act(async () => {
                 if (file.size > maxSaveSize) throw new Error('Save file is too large.')
                 setCandidate(decodeSave(await file.text()))
               })
             }} />
           </div>
+          {stored && stored.archives.length > 0 && <details className="hq-detail">
+            <summary>Archived agency saves ({stored.archives.length})</summary>
+            <ul>{stored.archives.map(({ key, raw }) => {
+              const archive = readBackup(raw)
+              return <li key={key}>
+                <strong>{archive ? `${archive.agency.name} · Day ${archive.agency.day} · Revision ${archive.revision}` : 'Unreadable archived save'}</strong>
+                <div className="hq-actions">
+                  <button disabled={busy} onClick={() => download(raw, `mission-control-${key.replace(':', '-')}.json`)}>Export archived save</button>
+                  {archive && <button disabled={busy} onClick={() => { setCandidate(archive); setRestoringArchive(true) }}>Restore archived save</button>}
+                </div>
+              </li>
+            })}</ul>
+          </details>}
           {candidate && <div className="hq-import-review">
-            <p>Import <strong>{candidate.agency.name}</strong>, program day {candidate.agency.day}? {stored?.raw !== undefined && 'The current save will be archived on this device.'}</p>
+            <p>{restoringArchive ? 'Restore' : 'Import'} <strong>{candidate.agency.name}</strong>, program day {candidate.agency.day}? {stored?.raw !== undefined && 'The current save will be archived on this device.'}</p>
             <button className="hq-primary" disabled={busy} onClick={() => void act(() => install({ ...candidate, id: crypto.randomUUID(), revision: 0 }, 'replace'))}>
-              {stored?.raw !== undefined ? 'Archive current and import' : 'Import agency'}
+              {restoringArchive ? 'Confirm archive restore' : stored?.raw !== undefined ? 'Archive current and import' : 'Import agency'}
             </button>{' '}
             <button onClick={() => setCandidate(null)}>Cancel import</button>
           </div>}

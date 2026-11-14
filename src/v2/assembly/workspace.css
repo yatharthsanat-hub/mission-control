@@ -1,0 +1,108 @@
+.assembly-workspace {
+  --work-bg: #0a111b;
+  --work-panel: #111e2a;
+  --work-line: #324758;
+  --work-ink: #eaf4f5;
+  --work-muted: #a9bdca;
+  --work-accent: #74e7c2;
+  --work-warning: #ffd08a;
+  background: var(--work-bg);
+  color: var(--work-ink);
+  min-height: 100vh;
+  padding: 0 20px 24px;
+  font-size: .9rem;
+}
+.assembly-header, .assembly-header-actions, .assembly-viewport-heading, .assembly-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.assembly-header, .assembly-viewport-heading { justify-content: space-between; }
+.assembly-header { padding-block: 18px 14px; border-bottom: 1px solid var(--work-line); }
+.assembly-header h1 { font-size: clamp(1.6rem, 3vw, 2.3rem); letter-spacing: -.04em; margin-top: 5px; }
+.assembly-header a, .assembly-loading a, .assembly-provenance a { color: var(--work-accent, var(--mint)); }
+.assembly-header-actions { flex-wrap: wrap; }
+.assembly-header-actions span, .assembly-announcement, .assembly-eyeline, .assembly-view-guide { color: var(--work-muted); }
+.assembly-announcement { margin: 9px 0; font-size: .84rem; }
+.assembly-columns { display: grid; grid-template-columns: minmax(186px, .64fr) minmax(0, 2.4fr) minmax(265px, .88fr); gap: 12px; align-items: start; }
+.assembly-panel { min-width: 0; background: var(--work-panel); border: 1px solid var(--work-line); border-radius: 8px; padding: 14px; }
+.assembly-panel h2 { font-size: 1.035rem; }
+.assembly-panel h3 { font-size: .94rem; margin: 0 0 5px; }
+.assembly-workspace button, .assembly-workspace select, .assembly-workspace input[type=search] {
+  min-height: 44px;
+  max-width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--work-line);
+  border-radius: 5px;
+  background: #192a38;
+  color: var(--work-ink);
+}
+.assembly-workspace button:hover:enabled { border-color: var(--work-accent); }
+.assembly-workspace button[aria-pressed=true] { border-color: var(--work-accent); background: #153038; }
+.assembly-workspace button.assembly-primary { background: var(--work-accent); border-color: transparent; color: #09251e; font-weight: 700; }
+.assembly-workspace button:disabled { background: #1c2933; color: #9aabb6; border-color: #2a3a47; }
+.assembly-field { display: grid; gap: 5px; margin-top: 9px; font-size: .83rem; min-width: 0; }
+.assembly-catalog, .assembly-tree ul { display: grid; gap: 5px; padding: 0; list-style: none; }
+.assembly-catalog { margin-top: 9px; }
+.assembly-catalog button { display: flex; align-items: center; gap: 9px; text-align: left; }
+.assembly-catalog button i { border: 1px solid #aec1ce50; width: 21px; height: 21px; flex: none; border-radius: 4px; }
+.assembly-catalog small, .assembly-tree small { display: block; margin-top: 3px; color: var(--work-muted); font-size: .75rem; overflow-wrap: anywhere; }
+.assembly-tree { margin-top: 15px; border-top: 1px solid var(--work-line); padding-top: 11px; }
+.assembly-tree button { text-align: left; width: 100%; }
+.assembly-center { padding: 0; }
+.assembly-viewport-heading { padding: 8px 12px; }
+.assembly-canvas {
+  height: clamp(320px, 58vh, 680px);
+  background: #0b1620;
+  border-block: 1px solid var(--work-line);
+  overflow: hidden;
+}
+.assembly-canvas-fallback {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  padding: 16px;
+  color: var(--work-muted);
+  background-image: linear-gradient(#26394b50 1px, transparent 1px), linear-gradient(90deg, #26394b50 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+.assembly-toolbar { flex-wrap: wrap; padding: 9px 12px; }
+.assembly-toolbar label { display: flex; align-items: center; min-height: 44px; gap: 5px; }
+.assembly-toolbar input { accent-color: var(--work-accent); }
+.assembly-view-guide { padding: 0 12px 10px; font-size: .8rem; }
+.assembly-placement { padding: 12px; border-top: 1px solid var(--work-line); }
+.assembly-placement p { color: var(--work-muted); margin-top: 5px; }
+.assembly-placement-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; }
+.assembly-placement button { margin-top: 9px; }
+.assembly-metrics { margin-top: 8px; }
+.assembly-metrics div { padding: 7px 0; border-bottom: 1px solid var(--work-line); }
+.assembly-metrics dt, .assembly-eyeline { font-size: .8rem; color: var(--work-muted); }
+.assembly-metrics dd { margin-top: 3px; font: .9rem var(--mono); }
+.assembly-selection, .assembly-validation, .assembly-provenance { margin-top: 13px; }
+.assembly-selection p, .assembly-validation p, .assembly-provenance p { color: var(--work-muted); font-size: .83rem; margin-top: 5px; }
+.assembly-selection button { margin: 6px 4px 0 0; }
+.assembly-validation ul { margin-bottom: 0; padding-left: 16px; color: var(--work-warning); font-size: .85rem; }
+.assembly-validation li + li { margin-top: 4px; }
+.assembly-workspace button.assembly-link { color: var(--work-warning); min-height: 24px; background: none; padding: 0; border: 0; text-align: left; text-decoration: underline; }
+.assembly-workspace .assembly-warning { color: var(--work-warning); }
+.assembly-good { color: var(--work-accent); }
+.assembly-error { background: #38242d; color: #ffd1cf; padding: 8px 12px; border-radius: 5px; margin-block: 6px; }
+.assembly-loading { padding: 24px; }
+.assembly-workspace summary { cursor: pointer; }
+.assembly-workspace :focus-visible { outline: 2px solid var(--work-accent); outline-offset: 2px; }
+@media (max-width: 990px) {
+  .assembly-columns { grid-template-columns: minmax(170px, .65fr) minmax(0, 2fr); }
+  .assembly-inspector { grid-column: 1 / -1; }
+  .assembly-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+}
+@media (max-width: 600px) {
+  .assembly-workspace { padding-inline: 10px; }
+  .assembly-columns { grid-template-columns: minmax(0, 1fr); }
+  .assembly-header { flex-wrap: wrap; }
+  .assembly-header-actions { justify-content: space-between; width: 100%; }
+  .assembly-catalog { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .assembly-canvas { height: clamp(245px, 45vh, 380px); }
+  .assembly-field select { width: 100%; }
+  .assembly-inspector { grid-column: auto; }
+}
