@@ -22,11 +22,14 @@ export const objectives = {
     { label: 'Green', publishedUm: [0.53, 0.59], rangeM: [530e-9, 590e-9] },
     training.requiredBands[0],
   ], scenes: 2, groundSampleLimitM: 60, minSunElevationDeg: 15 },
+  wildfire: { label: 'California Wildfire Observation', product: 'Visible-red regional context from the red / near-infrared camera',
+    bands: [training.requiredBands[0]], scenes: 1, groundSampleLimitM: 40, minSunElevationDeg: 15, deliveryDeadlineS: 21_600 },
 } as const
 
 export const targets = {
   valley: { label: 'Sacramento Valley', latitudeDeg: 38.58, longitudeDeg: -121.49, radiusM: 45_000, objective: 'crops' },
   delta: { label: 'Mississippi River Delta', latitudeDeg: 29.20, longitudeDeg: -89.30, radiusM: 45_000, objective: 'floods' },
+  paradise: { label: 'Paradise, Butte County', latitudeDeg: 39.7596061, longitudeDeg: -121.6219177, radiusM: 18_000, objective: 'wildfire' },
 } as const
 
 export const launches = {
@@ -64,6 +67,14 @@ export interface Finding {
 }
 
 export const defaultPlan: Plan = { objective: 'crops', target: 'valley', launch: 'survey', orbit: orbitDefaults, revisedFrom: null }
+export const wildfirePlan: Plan = { ...defaultPlan, objective: 'wildfire', target: 'paradise',
+  orbit: { ...orbitDefaults, altitudeKm: 400, inclinationDeg: 40, nodeDeg: 236 } }
+export const wildfireSources = {
+  wildfireRegion: { title: 'USGS Geographic Names Information System · Paradise', locator: 'GNIS 0277573, primary point',
+    url: 'https://edits.nationalmap.gov/apps/gaz-domestic/public/summary/0277573' },
+  wildfireContext: { title: 'NASA Earth Observatory · Camp Fire Rages in California', locator: 'November 2018 regional context',
+    url: 'https://science.nasa.gov/earth/earth-observatory/camp-fire-rages-in-california-144225/' },
+} as const
 export const contractId = 'earth-observation-training' as const
 export const maxApprovedMissions = 8
 const operationsCents = 1_000_000
@@ -223,10 +234,11 @@ function buildMission(id: string, plan: Plan, assembly: Assembly, approval: Appr
   return {
     schemaVersion: 1 as const, id, contractId, approval, plan, assembly, ...assessed, orbit: assessed.orbit,
     spacecraft: { ...spacecraft, payload: spacecraft.payload, communications: spacecraft.communications },
-    models: { orbit: orbitModel.revision, scenario: scenarioRevision, environment: environment.revision, sourceRegistry: sourceRegistryRevision },
+    models: { orbit: orbitModel.revision, scenario: plan.objective === 'wildfire' ? 'california-wildfire-1' : scenarioRevision,
+      environment: environment.revision, sourceRegistry: sourceRegistryRevision },
     catalogRevision: assembly.catalog,
     units,
-    environment, earthGravity, sources: missionSources,
+    environment, earthGravity, sources: plan.objective === 'wildfire' ? { ...missionSources, ...wildfireSources } : missionSources,
     executionInputs: {
       geometry: 'spherical-nadir-target-radius-1',
       eclipse: 'parallel-sun-cylindrical-shadow-1',
@@ -244,15 +256,22 @@ export type MissionConfiguration = Immutable<ReturnType<typeof buildMission>>
 
 export function approveMission(id: string, rawPlan: Plan, snapshot: Assembly, approval: Approval): MissionConfiguration {
   const plan = parsePlan(rawPlan)
+  if (plan.objective === 'wildfire') throw new Error('Wildfire missions require the deadline-aware flight forecast.')
   if (plan.revisedFrom === id) throw new Error('A mission cannot revise itself.')
   return freeze(structuredClone(buildMission(identifier(id), plan, restoreAssembly(snapshot), parseApproval(approval))))
 }
 
 type BasicReview = ReturnType<typeof review>
 
+function earthProfile(objective: BasicReview['objective']) {
+  return 'deliveryDeadlineS' in objective
+    ? { ...forecastProfile, revision: 'earth-wildfire-forecast-1' as const, durationS: objective.deliveryDeadlineS }
+    : forecastProfile
+}
+
 export function forecastReview(basic: BasicReview) {
   if (!basic.orbit) return { ...basic, forecast: null }
-  const forecast = analyzeForecast({ ...basic, orbit: basic.orbit, environment })
+  const forecast = analyzeForecast({ ...basic, orbit: basic.orbit, environment }, earthProfile(basic.objective))
   return { ...basic, forecast, findings: forecastFindings(basic.findings, forecast) }
 }
 
@@ -290,14 +309,15 @@ function forecastFindings(basic: readonly Finding[], forecast: Forecast, lunar =
 }
 
 function buildForecastMission(base: MissionConfiguration) {
-  const forecast = analyzeForecast(base)
+  const analysisProfile = earthProfile(base.objective)
+  const forecast = analyzeForecast(base, analysisProfile)
   const findings = forecastFindings(base.findings, forecast)
   if (findings.some(finding => finding.status === 'FAIL')) throw new Error('Resolve failed forecast checks before approval.')
   return {
     ...base,
     schemaVersion: 2 as const,
-    analysisProfile: forecastProfile,
-    environment: { ...base.environment, durationS: forecastProfile.durationS, stepS: forecastProfile.stepS },
+    analysisProfile,
+    environment: { ...base.environment, durationS: analysisProfile.durationS, stepS: analysisProfile.stepS },
     executionInputs: {
       ...base.executionInputs,
       geometry: forecastProfile.geometry,
@@ -365,7 +385,9 @@ export function approveLunarMission(id: string, rawPlan: LunarPlan, snapshot: As
 
 export function approveForecastMission(id: string, plan: Plan, snapshot: Assembly, approval: Approval, rfAcknowledged: boolean): ForecastMission {
   if (rfAcknowledged !== true) throw new Error('Acknowledge that RF link margin is not assessed.')
-  return freeze(buildForecastMission(approveMission(id, plan, snapshot, approval)))
+  const parsed = parsePlan(plan)
+  if (parsed.revisedFrom === id) throw new Error('A mission cannot revise itself.')
+  return freeze(buildForecastMission(buildMission(identifier(id), parsed, restoreAssembly(snapshot), parseApproval(approval))))
 }
 
 export function forecastApprovedMission(mission: ExecutableMission): Forecast {

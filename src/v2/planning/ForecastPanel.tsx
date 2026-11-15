@@ -32,7 +32,7 @@ export function ForecastPanel({ forecast, lunar = false }: { forecast: Forecast;
     `${(1000 * point.elapsedS / durationS).toFixed(2)},${(42 * (1 - point.chargeJ / power.capacityJ)).toFixed(2)}`).join(' ') : ''
   return <section className="hq-panel forecast-panel" aria-labelledby="forecast-heading">
     <div className="forecast-head">
-      <div><h2 id="forecast-heading">Mission feasibility forecast</h2><p>24 hours from the synthetic start epoch · 5 s midpoint sampling · Illustrative scenario</p></div>
+      <div><h2 id="forecast-heading">Mission feasibility forecast</h2><p>{durationS / 3600} hours from the synthetic start epoch · 5 s midpoint sampling · Illustrative scenario</p></div>
       <output aria-label="Forecast scene delivery">{communications.delivered} / {science.goal} complete scenes</output>
     </div>
     <div className="forecast-timeline" aria-label="Forecast timeline in elapsed mission time">
@@ -44,7 +44,7 @@ export function ForecastPanel({ forecast, lunar = false }: { forecast: Forecast;
         <svg className="forecast-charge" viewBox="0 0 1000 42" preserveAspectRatio="none" role="img" aria-label={`Battery charge on a zero to 100 percent scale, minimum ${minCharge?.toFixed(1)} percent`}>
           <polyline points={batteryPoints} />
         </svg></div>}
-      <div className="forecast-ticks" aria-hidden="true"><span>T+</span><div><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>24 h</span></div></div>
+      <div className="forecast-ticks" aria-hidden="true"><span>T+</span><div>{[0, .25, .5, .75, 1].map(fraction => <span key={fraction}>{durationS * fraction / 3600} h</span>)}</div></div>
     </div>
     <div className="forecast-summary">
       <section><h3>Target and instrument</h3>

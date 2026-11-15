@@ -9,11 +9,13 @@ import type { MissionTelemetry } from './run.ts'
 import type { Interval } from '../planning/forecast.ts'
 import { nextOpportunity } from './tutorial.ts'
 import { TargetChart } from './TargetChart.tsx'
+import { blueMarbleSource, fixedCoordinates } from './geography.ts'
 
 const Globe = lazy(() => import('./Globe.tsx'))
-const rad = Math.PI / 180
-const xy = ([x, y, z]: Vector): readonly [number, number] =>
-  [180 + Math.atan2(y, x) / rad, 90 - Math.atan2(z, Math.hypot(x, y)) / rad]
+function xy(position: Vector): readonly [number, number] {
+  const { longitudeDeg, latitudeDeg } = fixedCoordinates(position)
+  return [180 + longitudeDeg, 90 - latitudeDeg]
+}
 
 class GlobeBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -111,5 +113,6 @@ export function OrbitView({ mission, telemetry, accesses }: { mission: Executabl
     </ul>
     {lunar && <p className="hq-small">{env.fixedFrame} · {acquired ? `Latest footprint: ${(acquired.acrossM / 1000).toFixed(2)} × ${(acquired.alongM / 1000).toFixed(2)} km (local approximation)` : 'No reconnaissance imagery acquired.'}</p>}
     {globe && <p className="hq-small">Drag to orbit. Scroll or pinch to zoom. The orbit shows the path in space, above the surface.</p>}
+    {globe && !lunar && <p className="hq-small"><a href={blueMarbleSource} target="_blank" rel="noreferrer">NASA Earth Observatory · Blue Marble</a> · July 2004 surface basemap.</p>}
   </section>
 }

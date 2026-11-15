@@ -107,7 +107,7 @@ export function Headquarters() {
   const damaged = stored !== null && stored.raw !== undefined && !save
   const backup = damaged ? readBackup(stored.backup) : null
   const requested = new URLSearchParams(location.search).get('next')
-  const next = requested === 'earth' || requested === 'moon' ? missionEntry(requested, save) : null
+  const next = requested === 'earth' || requested === 'moon' || requested === 'wildfire' ? missionEntry(requested, save) : null
 
   return (
     <div className="hq">
@@ -133,7 +133,7 @@ export function Headquarters() {
         <div className="hq-status" aria-live="polite">{busy ? 'Working…' : notice || (save ? `Local save · revision ${save.revision}` : stored ? '' : error ? '' : 'Opening local saves…')}</div>
         {error && <p className="hq-alert" role="alert">{error}</p>}
         {next && <div className="mission-route-note">
-          <strong>{requested === 'moon' ? 'Lunar Reconnaissance' : 'Earth Observation'}</strong>
+          <strong>{requested === 'moon' ? 'Lunar Reconnaissance' : requested === 'wildfire' ? 'California Wildfire Observation' : 'Earth Observation'}</strong>
           <p>{next.detail}</p>{save && !next.href.startsWith('?mode=headquarters') && <a className="mission-button" href={next.href}>{next.label}</a>}
         </div>}
         {save && <AgencyWorkspace key={save.id} save={save} busy={busy} dispatch={dispatch} />}

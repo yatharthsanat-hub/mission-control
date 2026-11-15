@@ -105,8 +105,11 @@
 .ops-finish { display: flex; gap: 8px 13px; align-items: center; flex-wrap: wrap; margin-block: 8px 14px; }
 .ops-finish p { flex: 1 1 230px; }
 .ops-chart, .ops-canvas:has(.ops-target-chart) { margin-top: 10px; background: #101d30; border: 1px solid #334962; border-radius: 5px; overflow: hidden; height: auto; display: block; }
-.ops-target-chart { display: block; aspect-ratio: 360 / 200; height: auto; }
-.ops-target-chart text { fill: #9eb1c5; font: 6.5px var(--mono); }
+.ops-target-chart { display: block; aspect-ratio: 360 / 216; height: auto; }
+.ops-target-chart text { fill: #e7edf3; font: 6.5px var(--mono); paint-order: stroke; stroke: #101827; stroke-width: 1.6px; }
 .ops-target-chart .target-label { fill: #ffdfb2; font-family: inherit; font-size: 9px; font-weight: 700; paint-order: stroke; stroke: #101d30; stroke-width: 2.5px; }
 .ops-target-caption { padding: 8px 12px; border-top: 1px solid #334962; font-size: .85rem; }
 .ops-target-caption p { margin-top: 4px; }
+.mission-wildfire { width: 100%; border-top: 1px solid #33485d; margin-top: 6px; padding-top: 9px; }
+.mission-wildfire h3 { font-size: 1rem; }
+.mission-wildfire p { margin: 3px 0 6px; font-size: .85rem; }

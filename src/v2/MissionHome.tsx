@@ -22,7 +22,8 @@ export function MissionHome() {
     return () => { active = false }
   }, [])
   function activeFlight(id: Destination) {
-    return state?.save?.missions?.findLast(mission => mission.schemaVersion === (id === 'moon' ? 3 : 2))
+    return state?.save?.missions?.findLast(mission => id === 'moon' ? mission.schemaVersion === 3 :
+      mission.schemaVersion === 2 && (id === 'wildfire' ? mission.plan.objective === 'wildfire' : mission.plan.objective !== 'wildfire'))
   }
   return <div className="hq mission-home">
     <a className="skip-link" href="#mission-deck">Skip to missions</a>
@@ -48,6 +49,8 @@ export function MissionHome() {
         {destinations.map(item => {
           const entry = missionEntry(item.id, state?.save ?? null)
           const flight = activeFlight(item.id)
+          const wildfire = item.id === 'earth' && state ? missionEntry('wildfire', state.save) : null
+          const wildfireFlight = wildfire && activeFlight('wildfire')
           return <article className="mission-destination" key={item.id}>
             <div className={`mission-art ${item.id}`}>
               <img src={`${import.meta.env.BASE_URL}mission/${item.id}.jpg`} alt="" width="768" height="768" />
@@ -61,6 +64,12 @@ export function MissionHome() {
                 {state && <a className="mission-button" href={entry.href}>{entry.label}</a>}
                 {flight && <a href={`?mode=operations&mission=${flight.id}`}>Open latest flight</a>}
               </div>
+              {wildfire && <section className="mission-wildfire" aria-label="California Wildfire Observation">
+                <h3>California Wildfire Observation</h3>
+                <p>Return one visible-red scene of the Paradise area within six simulated hours.</p>
+                <div className="mission-links"><a href={wildfire.href}>Start wildfire planning</a>
+                  {wildfireFlight && <a href={`?mode=operations&mission=${wildfireFlight.id}`}>Open wildfire flight</a>}</div>
+              </section>}
             </div>
           </article>
         })}

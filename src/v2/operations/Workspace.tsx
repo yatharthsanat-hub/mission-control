@@ -12,6 +12,7 @@ import { OrbitView } from './OrbitView.tsx'
 import { LunarReview } from './LunarReview.tsx'
 import { createDemo, demoCheckpointKey, readDemoCheckpoint } from './demo.ts'
 import { TutorialGuide } from './TutorialGuide.tsx'
+import { plannerHref } from '../missionEntry.ts'
 import { finishControl, restoreInspection, tutorialInspectionKey } from './tutorial.ts'
 import type { TutorialPart } from './tutorial.ts'
 import '../headquarters.css'
@@ -48,7 +49,7 @@ function Windows({ forecast, elapsedS, lunar }: { forecast: Forecast; elapsedS: 
         width={1000 * (window.endS - window.startS) / forecast.durationS} height="16" />)}
       <line className="cursor" x1={Math.min(999, 1000 * elapsedS / forecast.durationS)} x2={Math.min(999, 1000 * elapsedS / forecast.durationS)} y1="0" y2="16" />
     </svg></div>)}
-    <div className="ops-scale" aria-hidden="true"><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>24 h</span></div>
+    <div className="ops-scale" aria-hidden="true">{[0, .25, .5, .75, 1].map(fraction => <span key={fraction}>{forecast.durationS * fraction / 3600} h</span>)}</div>
     <details className="hq-detail"><summary>Window times and durations</summary>
       <ul>{lanes.flatMap(([name, windows]) => windows.map(window => <li key={name + window.startS}>{name} · T+{clock(window.startS)} · {window.endS - window.startS} s</li>))}</ul>
     </details>
@@ -82,6 +83,7 @@ function ScienceReview({ mission, forecast, data, demo }: { mission: ExecutableM
       <div><span>Complete scenes delivered</span><strong>{resources.delivered} / {goal}</strong></div>
     </div>
     <p className="ops-result-line">{resources.delivered} of {goal} required complete scenes delivered. Acquisition requires the approved spectral bands, adequate lighting and a sampling distance of {mission.objective.groundSampleLimitM} m/px or finer.</p>
+    {'deliveryDeadlineS' in mission.objective && <p>Delivery deadline T+{clock(mission.objective.deliveryDeadlineS)}. {resources.delivered >= goal ? 'The required scene arrived by the deadline.' : 'No complete scene arrived by the deadline.'} The returned scene represents visible-red context only.</p>}
     <ul className="ops-reasons">
       {resources.delivered >= goal && <li>Science objective satisfied. All credited scenes arrived in full.</li>}
       {resources.delivered < goal && <li>The science requirement fell short by {goal - resources.delivered} complete scene(s).</li>}
@@ -126,6 +128,7 @@ function Flight({ mission, opened, demo = false }: { mission: ExecutableMission;
   const forecast = useMemo(() => forecastApprovedMission(mission), [mission])
   const { stepS, durationS } = mission.analysisProfile
   const lunar = mission.schemaVersion === 3
+  const wildfire = mission.schemaVersion === 2 && mission.plan.objective === 'wildfire'
 
   const saveProgress = useCallback((record: MissionRecord) => {
     if (demo) {
@@ -253,12 +256,13 @@ function Flight({ mission, opened, demo = false }: { mission: ExecutableMission;
         setPlaying(false)
         if (await saveProgress(run.record())) location.assign('?')
       }}>Back to Missions</a>
-      <ol className="mission-progress"><li className="reached"><a href={lunar ? '?mode=planning&body=moon' : '?mode=planning'}>Plan</a></li>
+      <ol className="mission-progress"><li className="reached"><a href={plannerHref(lunar ? 'moon' : wildfire ? 'wildfire' : 'earth')}>Plan</a></li>
         <li aria-current={!data.complete ? 'step' : undefined} className={data.complete ? 'reached' : undefined}>Flight</li>
         <li aria-current={data.complete ? 'step' : undefined}>{data.complete ? <a href="#review-heading">Review</a> : 'Review'}</li></ol>
     </nav>}
     <div className="ops-title"><div><p className="hq-kicker">{demo ? 'Guided tutorial' : 'Independent mission'} · {lunar ? 'Lunar reconnaissance' : 'Earth observation'}</p><h1>{mission.objective.label}</h1>
       <p>{mission.target.label} · Approved spacecraft revision {mission.assembly.revision}</p>
+      {wildfire && <p>Return one complete visible-red context scene by T+{clock(durationS)}. A scene left onboard at the deadline does not qualify.</p>}
       {lunar && <p>Flight begins in Moon-centered orbit after assumed insertion.</p>}</div>
       <div className="ops-clock"><span>{data.complete ? 'Mission complete' : !started ? 'Awaiting start' : playing ? 'Running' : 'Paused'}</span>
         <strong>T+{clock(data.elapsedS)}</strong><small>Elapsed TDB · {mission.orbit.elements.frame}</small></div></div>
@@ -369,7 +373,7 @@ function AgencyFlights() {
     <header className="hq-top"><div className="hq-shell hq-top-inner">
       <a href="?" className="hq-brand">MISSION CONTROL</a>
       <nav className="hq-actions" aria-label="Workspaces">{!mission && <a href="?" className="hq-nav-link">Back to Missions</a>}<a href="?mode=headquarters" className="hq-nav-link">Headquarters</a>
-        <a href={mission?.schemaVersion === 3 ? '?mode=planning&body=moon' : '?mode=planning'} className="hq-nav-link">Mission Planning</a><a href="?mode=operations" className="hq-nav-link">Approved missions</a></nav>
+        <a href={plannerHref(mission?.schemaVersion === 3 ? 'moon' : mission?.plan.objective === 'wildfire' ? 'wildfire' : 'earth')} className="hq-nav-link">Mission Planning</a><a href="?mode=operations" className="hq-nav-link">Approved missions</a></nav>
     </div></header>
     <main id="operations" className="hq-shell hq-main" tabIndex={-1}>
       {mission && mission.schemaVersion !== 1 && opened ? <Flight mission={mission} opened={opened} /> : <section className="hq-panel ops-list">

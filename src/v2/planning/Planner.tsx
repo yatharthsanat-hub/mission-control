@@ -3,7 +3,7 @@ import { applyCommand } from '../agency.ts'
 import { readLocal, writeLocal } from '../localSaves.ts'
 import { decodeSave } from '../saveFormat.ts'
 import type { Save } from '../saveFormat.ts'
-import { approvalContext, approveForecastMission, approveLunarMission, defaultPlan, forecastApprovedMission, forecastReview, launches, lunarMissionSources, lunarService, maxApprovedMissions, missionSources, objectives, parseLunarPlan, parsePlan, review, reviewLunar, targets } from './mission.ts'
+import { approvalContext, approveForecastMission, approveLunarMission, defaultPlan, forecastApprovedMission, forecastReview, launches, lunarMissionSources, lunarService, maxApprovedMissions, missionSources, objectives, parseLunarPlan, parsePlan, review, reviewLunar, targets, wildfirePlan, wildfireSources } from './mission.ts'
 import type { ApprovedMission, Plan } from './mission.ts'
 import { environment, groundTrack } from './orbit.ts'
 import type { OrbitInput } from './orbit.ts'
@@ -27,22 +27,22 @@ const fields: readonly [keyof OrbitInput, string][] = [
   ['periapsisDeg', 'Argument of periapsis (°)'], ['meanAnomalyDeg', 'Initial mean anomaly (°)'],
 ]
 
-function Preview({ orbit, target, inputs }: { orbit: ReturnType<typeof review>['orbit']; target: { latitudeDeg: number; longitudeDeg: number }; inputs: FlightEnvironment }) {
-  const track = useMemo(() => orbit ? groundTrack(orbit.elements, forecastProfile.durationS, inputs) : [], [orbit, inputs])
+function Preview({ orbit, target, inputs, durationS }: { orbit: ReturnType<typeof review>['orbit']; target: { latitudeDeg: number; longitudeDeg: number }; inputs: FlightEnvironment; durationS: number }) {
+  const track = useMemo(() => orbit ? groundTrack(orbit.elements, durationS, inputs) : [], [orbit, inputs, durationS])
   const lines: string[][] = []
   track.forEach((point, index) => {
     if (!index || Math.abs(point.longitudeDeg - track[index - 1].longitudeDeg) > 180) lines.push([])
     lines.at(-1)?.push((point.longitudeDeg + 180).toFixed(2) + ',' + (90 - point.latitudeDeg).toFixed(2))
   })
   return <figure className="plan-preview">
-    <svg viewBox="0 0 360 180" role="img" aria-label="24-hour ground track over a longitude and latitude grid with the target center marked">
+    <svg viewBox="0 0 360 180" role="img" aria-label="Mission ground track over a longitude and latitude grid with the target center marked">
       <rect width="360" height="180" fill="#0b1520" />
       {[30, 60, 90, 120, 150].map(y => <path key={y} d={`M0,${y} H360`} stroke="#34505f" strokeWidth=".45" />)}
       {[30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map(x => <path key={x} d={`M${x},0 V180`} stroke="#34505f" strokeWidth=".45" />)}
       {lines.map((points, index) => <polyline key={index} points={points.join(' ')} fill="none" stroke="#74e7c2" strokeWidth="1.1" />)}
       <circle cx={target.longitudeDeg + 180} cy={90 - target.latitudeDeg} r="2.7" fill="#ffd08a" />
     </svg>
-    <figcaption>{orbit ? '24-hour subpoint track sampled every minute. The amber marker shows the target center. See the forecast for actual viewing constraints.' : 'Ground track unavailable until the orbit inputs are valid.'}</figcaption>
+    <figcaption>{orbit ? `${durationS / 3600}-hour subpoint track sampled every minute. Amber marks the target center. See the forecast for actual viewing constraints.` : 'Ground track unavailable until the orbit inputs are valid.'}</figcaption>
   </figure>
 }
 
@@ -73,7 +73,13 @@ function comparisonCase(label: string, plan: Plan | LunarPlan, assessment: Compa
   }
 }
 
-const draftKey = (agency: string, lunar: boolean) => `mission-control-plan-1:${agency}:${lunar ? 'moon' : 'earth'}`
+function initialPlan() {
+  const query = new URLSearchParams(location.search)
+  return query.get('body') === 'moon' ? defaultLunarPlan : query.get('scenario') === 'wildfire' ? wildfirePlan : defaultPlan
+}
+
+const draftKey = (agency: string, plan: Plan | LunarPlan) =>
+  `mission-control-plan-1:${agency}:${'body' in plan ? 'moon' : plan.objective === 'wildfire' ? 'wildfire' : 'earth'}`
 
 export default function Planner() {
   const [stored, setStored] = useState<{ raw: string; save: Save } | null>(null)
@@ -81,8 +87,7 @@ export default function Planner() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [justApproved, setJustApproved] = useState(false)
-  const [plan, setPlan] = useState<Plan | LunarPlan>(() =>
-    new URLSearchParams(location.search).get('body') === 'moon' ? defaultLunarPlan : defaultPlan)
+  const [plan, setPlan] = useState<Plan | LunarPlan>(initialPlan)
   const [craft, setCraft] = useState('draft')
   const [busy, setBusy] = useState(false)
   const [acknowledged, setAcknowledged] = useState<{ plan: Plan | LunarPlan; assembly: Assembly } | null>(null)
@@ -96,12 +101,12 @@ export default function Planner() {
       if (raw !== undefined) {
         const save = decodeSave(raw)
         setStored({ raw, save })
-        const moon = new URLSearchParams(location.search).get('body') === 'moon'
+        const routePlan = initialPlan()
         try {
-          const saved = window.sessionStorage.getItem(draftKey(save.id, moon))
+          const saved = window.sessionStorage.getItem(draftKey(save.id, routePlan))
           if (saved) {
             const draft = JSON.parse(saved)
-            setPlan(moon ? parseLunarPlan(draft.plan) : parsePlan(draft.plan))
+            setPlan('body' in routePlan ? parseLunarPlan(draft.plan) : parsePlan(draft.plan))
             setCraft(save.missions?.some(mission => mission.id === draft.craft) ? draft.craft : 'draft')
             setNotice('Unapproved plan restored from this tab. Review readiness before approving.')
           }
@@ -120,7 +125,8 @@ export default function Planner() {
   const assembly = craft === 'draft' ? save?.assembly : history.find(mission => mission.id === craft)?.assembly
   const context = save ? approvalContext(save.id, save.agency) : null
   const lunar = 'body' in plan
-  const provenance = lunar ? lunarMissionSources : missionSources
+  const wildfire = !lunar && plan.objective === 'wildfire'
+  const provenance = lunar ? lunarMissionSources : wildfire ? { ...missionSources, ...wildfireSources } : missionSources
   const rfAcknowledged = acknowledged !== null && acknowledged.plan === plan && acknowledged.assembly === assembly
   const assessment = useMemo(() => {
     if (!save || !assembly) return null
@@ -155,7 +161,7 @@ export default function Planner() {
       const raw = await writeLocal(stored.raw, { ...save, revision: save.revision + 1, agency, missions: [...history, mission] })
       setStored({ raw, save: decodeSave(raw) })
       setJustApproved(true)
-      try { window.sessionStorage.removeItem(draftKey(save.id, lunar)) } catch { /* Approved snapshot is already saved. */ }
+      try { window.sessionStorage.removeItem(draftKey(save.id, plan)) } catch { /* Approved snapshot is already saved. */ }
       setNotice(`${mission.objective.label} approved. ${usd(mission.budget.totalCents)} committed.`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to save the approved mission.')
@@ -175,7 +181,7 @@ export default function Planner() {
 
   function startNew() {
     setCraft('draft')
-    setPlan(lunar ? defaultLunarPlan : defaultPlan)
+    setPlan(lunar ? defaultLunarPlan : wildfire ? wildfirePlan : defaultPlan)
     setAcknowledged(null)
     setNotice('')
     setJustApproved(false)
@@ -189,8 +195,8 @@ export default function Planner() {
       <nav className="hq-actions" aria-label="Workspaces"><a className="hq-nav-link" href="?" onClick={event => {
         if (busy) { event.preventDefault(); return }
         if (!save || justApproved) return
-        try { window.sessionStorage.setItem(draftKey(save.id, lunar), JSON.stringify({ plan, craft })) } catch { /* Approved snapshots live in the agency save. */ }
-      }}>Back to Missions</a><a className="hq-nav-link" href={lunar ? '?mode=assembly&next=moon' : '?mode=assembly'}>Vehicle Assembly</a><a className="hq-nav-link" href="?mode=headquarters">Headquarters</a></nav>
+        try { window.sessionStorage.setItem(draftKey(save.id, plan), JSON.stringify({ plan, craft })) } catch { /* Approved snapshots live in the agency save. */ }
+      }}>Back to Missions</a><a className="hq-nav-link" href={lunar ? '?mode=assembly&next=moon' : wildfire ? '?mode=assembly&next=wildfire' : '?mode=assembly'}>Vehicle Assembly</a><a className="hq-nav-link" href="?mode=headquarters">Headquarters</a></nav>
     </div></header>
     <main className="hq-shell hq-main" id="mission-planning" tabIndex={-1}>
       <div className="hq-heading"><div><p className="hq-kicker">{lunar ? 'Lunar reconnaissance program' : 'Earth observation program'}</p><h1>Mission planning</h1>
@@ -230,11 +236,13 @@ export default function Planner() {
             </> : <>
             <label>Science objective <select id="science-objective" value={plan.objective} onChange={event => {
               const objective = event.target.value as Plan['objective']
-              setPlan({ ...plan, objective, target: objective === 'crops' ? 'valley' : 'delta' })
+              setPlan(objective === 'wildfire' ? { ...wildfirePlan, launch: plan.launch, revisedFrom: plan.revisedFrom }
+                : { ...plan, objective, target: objective === 'crops' ? 'valley' : 'delta' })
             }}>{Object.entries(objectives).map(([id, objective]) => <option key={id} value={id}>{objective.label}</option>)}</select></label>
-            {plan.objective === 'floods' && <p className="hq-warn">The catalog camera lacks the blue and green bands required for this objective. Use crop monitoring for a flyable Earth mission.</p>}
+            {plan.objective === 'floods' && <p className="hq-warn">The catalog camera lacks the blue and green bands required for this objective. Choose crop monitoring or wildfire observation to use the current camera.</p>}
+            {wildfire && <p className="hq-small">A fictional rapid-response assignment near Paradise, California. Acquire one daylight visible-red scene at 40 m/px or finer and return it by T+06:00:00. The camera collects red and near-infrared together. The scene is for regional context. The model has no smoke screening, thermal detection or burn-severity analysis.</p>}
             <label>Target region <select value={plan.target} onChange={event => setPlan({ ...plan, target: event.target.value as Plan['target'] })}>
-              {Object.entries(targets).map(([id, target]) => <option key={id} value={id}>{target.label}</option>)}
+              {Object.entries(targets).filter(([, target]) => wildfire ? target.objective === 'wildfire' : target.objective !== 'wildfire').map(([id, target]) => <option key={id} value={id}>{target.label}</option>)}
             </select></label>
             <label>Launch service <select value={plan.launch} onChange={event => setPlan({ ...plan, launch: event.target.value as Plan['launch'] })}>
               {Object.entries(launches).map(([id, launch]) => <option key={id} value={id}>{launch.label}</option>)}
@@ -249,6 +257,7 @@ export default function Planner() {
             </label>)}</div>
             <p className="hq-small">Both apsides must be within {lunar ? '60–400' : '300–1,500'} km. Inclination is 0–180°. Other angles use 0° to below 360°.</p>
             {lunar && <button className="plan-reference-orbit" type="button" onClick={() => setPlan({ ...plan, orbit: { ...defaultLunarPlan.orbit } })}>Load lunar study orbit</button>}
+            {wildfire && <button className="plan-reference-orbit" type="button" onClick={() => setPlan({ ...plan, orbit: { ...wildfirePlan.orbit } })}>Load wildfire response orbit</button>}
             {plan.objective === 'crops' && <button className="plan-reference-orbit" type="button" onClick={() => setPlan({
               ...plan, orbit: { ...defaultPlan.orbit, altitudeKm: 400, inclinationDeg: 40, nodeDeg: 240 },
             })}>Load crop study orbit</button>}
@@ -258,7 +267,8 @@ export default function Planner() {
         <section className="hq-panel plan-analysis" aria-labelledby="preview-heading">
           <h2 id="preview-heading">Trajectory and spacecraft</h2>
           {assessment ? <>
-            <Preview orbit={assessment.orbit} target={assessment.target} inputs={lunar ? lunarEnvironment : environment} />
+            <Preview orbit={assessment.orbit} target={assessment.target} inputs={lunar ? lunarEnvironment : environment}
+              durationS={wildfire ? objectives.wildfire.deliveryDeadlineS : forecastProfile.durationS} />
             <p className="hq-small">{assessment.objective.product}. Goal: {assessment.objective.scenes} usable delivered scenes.</p>
             <dl className="plan-metrics">
               <div><dt>Target center · lat / lon</dt><dd>{assessment.target.latitudeDeg.toFixed(2)}°, {assessment.target.longitudeDeg.toFixed(2)}°</dd></div>

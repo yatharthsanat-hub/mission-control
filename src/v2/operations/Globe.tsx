@@ -1,11 +1,22 @@
-import { Canvas } from '@react-three/fiber'
+import { Canvas, useLoader } from '@react-three/fiber'
 import { Line, OrbitControls } from '@react-three/drei'
-import { useEffect, useMemo } from 'react'
-import { CanvasTexture, SRGBColorSpace } from 'three'
+import { Suspense, useEffect, useMemo } from 'react'
+import { CanvasTexture, SRGBColorSpace, TextureLoader } from 'three'
+import { fixedToScene as three } from './geography.ts'
 import { siteUnit } from '../planning/geometry.ts'
 import type { Vector } from '../planning/geometry.ts'
 
-const three = ([x, y, z]: Vector): [number, number, number] => [x, z, -y]
+function EarthMaterial() {
+  const source = useLoader(TextureLoader, `${import.meta.env.BASE_URL}mission/blue-marble-globe.jpg`)
+  const texture = useMemo(() => {
+    const map = source.clone()
+    map.colorSpace = SRGBColorSpace
+    return map
+  }, [source])
+  useEffect(() => () => texture.dispose(), [texture])
+  return <meshStandardMaterial map={texture} roughness={.92} />
+}
+
 const grid = [
   ...[-60, -30, 0, 30, 60].map(latitudeDeg =>
     Array.from({ length: 73 }, (_, i) => siteUnit({ latitudeDeg, longitudeDeg: i * 5 }))),
@@ -60,7 +71,9 @@ export default function Globe({ orbit, track, craft, target, station, sun, acces
   useEffect(() => () => texture?.dispose(), [texture])
   const contactEnd: Vector | null = earthDirection ?
     [craft[0] + earthDirection[0] * .55, craft[1] + earthDirection[1] * .55, craft[2] + earthDirection[2] * .55] : station
-  return <Canvas frameloop="demand" camera={{ position: [2.05, 1.65, 2.2], near: .02, far: 25, fov: 40 }}
+  const cameraPosition = lunar ? [2.05, 1.65, 2.2] as [number, number, number]
+    : three([target[0] * 3.25, target[1] * 3.25, target[2] * 3.25])
+  return <Canvas frameloop="demand" camera={{ position: cameraPosition, near: .02, far: 25, fov: 40 }}
     dpr={[1, 1.5]} fallback={<p>WebGL is unavailable. Select the 2D ground track.</p>}
     onCreated={({ gl }) => gl.domElement.addEventListener('webglcontextlost', onLost, { once: true })}>
     <color attach="background" args={['#090f1a']} />
@@ -69,7 +82,8 @@ export default function Globe({ orbit, track, craft, target, station, sun, acces
     <OrbitControls minDistance={1.25} maxDistance={7} enableDamping={false} makeDefault />
     <mesh>
       <sphereGeometry args={[1, 56, 36]} />
-      <meshStandardMaterial color={lunar ? '#babac0' : '#133653'} map={texture} roughness={.92} />
+      {lunar ? <meshStandardMaterial color="#babac0" map={texture} roughness={.92} /> :
+        <Suspense fallback={<meshStandardMaterial color="#133653" roughness={.92} />}><EarthMaterial /></Suspense>}
     </mesh>
     {lunar && <group scale={1.004}>
       {grid.map((line, index) => <Line key={index} points={line.map(three)} color="#507590" transparent opacity={.45} />)}

@@ -4,6 +4,7 @@ import { unlockedCapabilities } from '../agency.ts'
 import { readLocal, writeLocal } from '../localSaves.ts'
 import { decodeSave } from '../saveFormat.ts'
 import type { Save } from '../saveFormat.ts'
+import { plannerHref } from '../missionEntry.ts'
 import { assemblySources, catalog, catalogRevision, launchDimensionsM, launchEnvelope, partDefinition } from './catalog.ts'
 import type { PartId } from './catalog.ts'
 import { engineering, freeMounts, historyOf, initialAssembly, recordRevision, resolveAssembly, revise, travel } from './engine.ts'
@@ -76,7 +77,7 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
   const mount = mounts.find(item => item.key === mountKey)
   const source = assemblySources[partDefinition(selected?.part ?? partId).source]
   const launchBlocked = !report.fitsEnvelope || !report.fitsMass || !report.fitsCom
-  const lunarRoute = new URLSearchParams(location.search).get('next') === 'moon'
+  const route = new URLSearchParams(location.search).get('next')
 
   useEffect(() => {
     if (!dirty) return
@@ -158,7 +159,7 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
           if (await saveDraft()) location.assign('?')
         }}>{dirty ? 'Save draft and return to Missions' : 'Back to Missions'}</a><h1>Vehicle Assembly</h1></div>
         <div className="assembly-header-actions">
-          <a href={lunarRoute ? '?mode=planning&body=moon' : '?mode=planning'}>Mission Planning</a>
+          <a href={plannerHref(route === 'moon' || route === 'wildfire' ? route : 'earth')}>Mission Planning</a>
           <span>{stored.save.agency.name} · Revision {assembly.revision}{dirty ? ' · Unsaved' : ''}</span>
           <button className="assembly-primary" disabled={!dirty || busy} onClick={() => void saveDraft()}>{busy ? 'Saving…' : 'Save draft'}</button>
         </div>
