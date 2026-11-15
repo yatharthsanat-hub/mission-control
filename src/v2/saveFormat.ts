@@ -46,9 +46,12 @@ function decodeCommand(value: unknown): Command {
     case 'fund-training':
     case 'start-research':
     case 'advance-day':
+    case 'claim-lunar-grant':
       return { id, kind: input.kind }
     case 'reserve-mission':
       if (typeof input.cents !== 'number' || !Number.isSafeInteger(input.cents) || input.cents <= 0) break
+      if (input.destination === 'moon') return { id, kind: input.kind, cents: input.cents, destination: 'moon' }
+      if (input.destination !== undefined) break
       return { id, kind: input.kind, cents: input.cents }
     case 'submit-review':
       if ((input.payload !== 'visible' && input.payload !== 'multispectral') ||
@@ -111,7 +114,9 @@ export function decodeSave(raw: string): Save {
     if (applied.has(command.id)) throw new Error('Duplicate transaction in save history.')
     if (command.kind === 'reserve-mission') {
       const mission = missions.get(command.id)
-      if (!mission || mission.budget.totalCents !== command.cents) throw new Error('Missing or inconsistent mission commitment.')
+      if (!mission || mission.budget.totalCents !== command.cents || (mission.schemaVersion === 3) !== (command.destination === 'moon')) {
+        throw new Error('Missing or inconsistent mission commitment.')
+      }
       // An imported or restored agency can have a new local storage identifier.
       const context = approvalContext(mission.approval.agencyId, agency)
       if (mission.approval.agencyName !== context.agencyName || mission.approval.programDay !== context.programDay ||
@@ -133,7 +138,7 @@ export function decodeSave(raw: string): Save {
     const recorded = new Set<string>()
     for (const raw of input.operations) {
       const mission = missions.get(identifier(object(raw).missionId))
-      if (!mission || mission.schemaVersion !== 2 || recorded.has(mission.id)) throw new Error('Missing, legacy, or duplicate operations mission.')
+      if (!mission || mission.schemaVersion === 1 || recorded.has(mission.id)) throw new Error('Missing, legacy, or duplicate operations mission.')
       operations.push(restoreRecord(raw, mission))
       recorded.add(mission.id)
     }

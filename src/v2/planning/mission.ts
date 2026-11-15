@@ -3,7 +3,7 @@ import type { Agency } from '../agency.ts'
 import { assemblySources, launchEnvelope, partDefinition } from '../assembly/catalog.ts'
 import { engineering, restoreAssembly } from '../assembly/engine.ts'
 import type { Assembly } from '../assembly/engine.ts'
-import { earthGravity, orbitModel } from '../physics/twoBody.ts'
+import { earthGravity, inertialFrame, lunarFrame, lunarGravity, orbitModel } from '../physics/twoBody.ts'
 import { sourceRegistryRevision, sources } from '../sources.ts'
 import { payloads, training } from '../training.ts'
 import { environment, orbitalSummary, orbitDefaults } from './orbit.ts'
@@ -11,6 +11,9 @@ import type { OrbitInput } from './orbit.ts'
 import { analyzeForecast, forecastProfile } from './forecast.ts'
 import type { Forecast } from './forecast.ts'
 import { missingSpectralBands, sceneVolumeBits } from './geometry.ts'
+import { lunarEnvironment, lunarSources } from './environments.ts'
+import { lunarObjectives, lunarProfile, lunarSites } from './lunarScenario.ts'
+import type { LunarPlan } from './lunarScenario.ts'
 
 export const objectives = {
   crops: { label: 'Crop monitoring', product: 'Red and near-infrared scenes for vegetation assessment', bands: training.requiredBands, scenes: 2, groundSampleLimitM: 40, minSunElevationDeg: 15 },
@@ -67,6 +70,31 @@ const operationsCents = 1_000_000
 const scenarioRevision = 'earth-observation-plan-1'
 
 export function review(plan: Plan, assembly: Assembly, availableCents: number, capabilities: readonly string[]) {
+  const objective = objectives[plan.objective]
+  const target = targets[plan.target]
+  return assessDesign(plan.orbit, assembly, availableCents, capabilities, {
+    objective, target, launch: launches[plan.launch], frame: inertialFrame,
+    operationsCents, targetMatches: target.objective === plan.objective,
+  })
+}
+
+export const lunarService = { ...launches.extended, label: 'Illustrative post-insertion lunar service', costCents: 3_100_000 } as const
+
+interface DesignScenario {
+  readonly objective: { readonly groundSampleLimitM: number; readonly bands: readonly {
+    readonly label: string; readonly rangeM: readonly [number, number]
+  }[] }
+  readonly target: { readonly label: string }
+  readonly launch: { readonly label: string; readonly costCents: number; readonly minM: readonly number[];
+    readonly maxM: readonly number[]; readonly maxWetKg: number; readonly maxComOffsetM: readonly number[];
+    readonly minInclinationDeg: number; readonly maxInclinationDeg: number }
+  readonly operationsCents: number
+  readonly targetMatches: boolean
+  readonly frame: ReturnType<typeof orbitalSummary>['elements']['frame']
+}
+
+function assessDesign<S extends DesignScenario>(orbitInput: OrbitInput, assembly: Assembly, availableCents: number,
+  capabilities: readonly string[], scenario: S) {
   const totals = engineering(assembly)
   const parts = totals.parts.map(part => {
     const { generationW, capacityJ, loadW, massKg, costCents, capability } = partDefinition(part.part)
@@ -75,9 +103,7 @@ export function review(plan: Plan, assembly: Assembly, availableCents: number, c
   const camera = parts.find(part => part.part === 'imager')
   const radio = parts.find(part => part.part === 'radio')
   const housekeepingW = partDefinition('bus').loadW
-  const objective = objectives[plan.objective]
-  const target = targets[plan.target]
-  const launch = launches[plan.launch]
+  const { objective, launch, operationsCents } = scenario
   const budget = { availableCents, hardwareCents: totals.costCents, launchCents: launch.costCents,
     operationsCents, totalCents: totals.costCents + launch.costCents + operationsCents }
   const cameraProfile = { widthPixels: 1024, heightPixels: 1024, bitsPerPixelPerBand: 12, bandCount: 2 }
@@ -97,7 +123,7 @@ export function review(plan: Plan, assembly: Assembly, availableCents: number, c
   }
   let orbit: ReturnType<typeof orbitalSummary> | null = null
   try {
-    orbit = orbitalSummary(plan.orbit)
+    orbit = orbitalSummary(orbitInput, scenario.frame)
     add('Orbit scope', 'PASS', 'Both apsides and all elements are in the documented two-body range.', 'gravity')
   } catch (error) {
     add('Orbit scope', 'FAIL', error instanceof Error ? error.message : 'Unsupported orbit.', 'gravity')
@@ -111,8 +137,8 @@ export function review(plan: Plan, assembly: Assembly, availableCents: number, c
     add('Best-case sample spacing', bestGsdM <= objective.groundSampleLimitM ? 'PASS' : 'FAIL',
       `Ideal nadir spacing at perigee is ${bestGsdM.toFixed(1)} m per pixel against a ${objective.groundSampleLimitM} m limit. This check assumes the illustrative optics and shows the best case along the orbit.`)
   }
-  add('Target definition', target.objective === plan.objective ? 'PASS' : 'FAIL',
-    target.objective === plan.objective ? 'The selected region is assigned to this science objective.' : 'Select the target region assigned to the science objective.', 'science')
+  add('Target definition', scenario.targetMatches ? 'PASS' : 'FAIL',
+    scenario.targetMatches ? 'The selected region is assigned to this science objective.' : 'Select the target region assigned to the science objective.', 'science')
   add('Observation access', 'WARNING', 'The geographic preview shows sampled subpoints. Footprint, resolution, illumination and usable observations still need evaluation.', 'spin')
   const locked = parts.some(part => part.capability && !capabilities.includes(part.capability))
   add('Research eligibility', locked ? 'FAIL' : 'PASS', locked ? 'Complete pointing research or remove the locked part.' : 'All mounted parts are eligible at approval.', 'attitude')
@@ -124,7 +150,7 @@ export function review(plan: Plan, assembly: Assembly, availableCents: number, c
     'Change the stowed assembly geometry or select a larger service. Fit includes center-of-mass limits.', 'interface')
   add('Launch mass', totals.wetKg <= launch.maxWetKg + 1e-9 ? 'PASS' : 'FAIL',
     'Wet mass ' + totals.wetKg.toFixed(2) + ' kg against a ' + launch.maxWetKg + ' kg scenario limit. Reduce mass or change service if over.', 'interface')
-  const launchOrbit = orbit && plan.orbit.inclinationDeg >= launch.minInclinationDeg && plan.orbit.inclinationDeg <= launch.maxInclinationDeg
+  const launchOrbit = orbit && orbitInput.inclinationDeg >= launch.minInclinationDeg && orbitInput.inclinationDeg <= launch.maxInclinationDeg
   add('Service inclination', launchOrbit ? 'PASS' : 'FAIL', 'Selected service supports ' + launch.minInclinationDeg + '–' + launch.maxInclinationDeg + '° in this scenario. Match the orbit or switch services.', 'interface')
   add('Sunlit housekeeping', totals.generationW >= housekeepingW ? 'PASS' : 'FAIL',
     totals.generationW >= housekeepingW ? 'Nominal sun-pointed output covers housekeeping.' : 'Add solar generation to cover housekeeping in nominal sunlight.', 'power')
@@ -137,18 +163,23 @@ export function review(plan: Plan, assembly: Assembly, availableCents: number, c
   if (radio) add('Ground link', 'WARNING', 'A fictional terminal and capped bit rate are defined. Contact timing and RF margin remain open.', 'radio')
   add('Funding', budget.totalCents <= availableCents ? 'PASS' : 'FAIL', budget.totalCents <= availableCents ?
     'Available USD covers the projected commitment.' : 'Reduce cost or return after agency funding increases.', 'maturity')
-  return { orbit, launch, target, objective, budget, spacecraft, findings }
+  return { orbit, launch: scenario.launch as S['launch'], target: scenario.target as S['target'],
+    objective: scenario.objective as S['objective'], budget, spacecraft, findings }
 }
 
-function parsePlan(raw: unknown): Plan {
-  const input = record(raw)
-  const orbit = record(input.orbit)
+function parseOrbit(raw: unknown): OrbitInput {
+  const orbit = record(raw)
   const values = Object.keys(orbitDefaults)
   if (Object.keys(orbit).length !== values.length || values.some(key => typeof orbit[key] !== 'number' || !Number.isFinite(orbit[key]))) {
     throw new Error('Invalid orbit input.')
   }
+  return { ...orbit } as OrbitInput
+}
+
+function parsePlan(raw: unknown): Plan {
+  const input = record(raw)
   return { objective: choice(input.objective, objectives), target: choice(input.target, targets), launch: choice(input.launch, launches),
-    orbit: { ...orbit } as OrbitInput, revisedFrom: input.revisedFrom === null ? null : identifier(input.revisedFrom) }
+    orbit: parseOrbit(input.orbit), revisedFrom: input.revisedFrom === null ? null : identifier(input.revisedFrom) }
 }
 
 function record(raw: unknown): Record<string, unknown> {
@@ -173,6 +204,8 @@ export function approvalContext(agencyId: string, agency: Agency) {
 
 type Approval = ReturnType<typeof approvalContext>
 type Immutable<T> = T extends number | string | boolean | null | undefined ? T : { readonly [K in keyof T]: Immutable<T[K]> }
+const units = { position: 'm', velocity: 'm/s', time: 's', timeScale: 'TDB', epochOrigin: 'J2000', orbitalAngle: 'rad', geographicAngle: 'deg',
+  mass: 'kg', power: 'W', energy: 'J', data: 'bit', currency: 'USD cents' } as const
 
 function freeze<T>(value: T): Immutable<T> {
   if (value && typeof value === 'object') {
@@ -192,8 +225,7 @@ function buildMission(id: string, plan: Plan, assembly: Assembly, approval: Appr
     spacecraft: { ...spacecraft, payload: spacecraft.payload, communications: spacecraft.communications },
     models: { orbit: orbitModel.revision, scenario: scenarioRevision, environment: environment.revision, sourceRegistry: sourceRegistryRevision },
     catalogRevision: assembly.catalog,
-    units: { position: 'm', velocity: 'm/s', time: 's', timeScale: 'TDB', epochOrigin: 'J2000', orbitalAngle: 'rad', geographicAngle: 'deg',
-      mass: 'kg', power: 'W', energy: 'J', data: 'bit', currency: 'USD cents' },
+    units,
     environment, earthGravity, sources: missionSources,
     executionInputs: {
       geometry: 'spherical-nadir-target-radius-1',
@@ -224,7 +256,7 @@ export function forecastReview(basic: BasicReview) {
   return { ...basic, forecast, findings: forecastFindings(basic.findings, forecast) }
 }
 
-function forecastFindings(basic: readonly Finding[], forecast: Forecast): Finding[] {
+function forecastFindings(basic: readonly Finding[], forecast: Forecast, lunar = false): Finding[] {
   const findings = basic.filter(finding => !['Observation access', 'Concurrent loads', 'Ground link'].includes(finding.id))
     .map(finding => finding.id === 'Battery installed' && finding.status === 'PASS'
       ? { ...finding, explanation: 'Installed energy capacity is used in the forecast.' } : finding)
@@ -242,14 +274,17 @@ function forecastFindings(basic: readonly Finding[], forecast: Forecast): Findin
     id: 'Forecast science delivery', source: 'science', status: communications.delivered >= science.goal ? 'PASS' : 'FAIL',
     explanation: `${science.captured} captured, ${communications.delivered} complete scenes returned under the illustrative schedule. The goal is ${science.goal}. Review target windows, contacts, energy, and remaining onboard data.`,
   }, {
-    id: 'Ground contacts', source: 'radio', status: contacts.length && communications.rateBps > 0 ? 'PASS' : 'FAIL',
-    explanation: `${contacts.length} contact windows above the station elevation mask. Change orbit geometry or fit a radio if unavailable.`,
+    id: lunar ? 'Illustrative Earth service contacts' : 'Ground contacts', source: 'radio',
+    status: contacts.length && communications.rateBps > 0 ? 'PASS' : 'FAIL',
+    explanation: lunar ? `${contacts.length} windows clear the lunar limb toward the assumed Earth direction. The service rate is illustrative.` :
+      `${contacts.length} contact windows above the station elevation mask. Change orbit geometry or fit a radio if unavailable.`,
   }, {
     id: 'RF link budget', source: 'radio', status: 'WARNING',
     explanation: 'NOT ASSESSED. The rate cap is a training-service assumption. Approval requires explicit acknowledgement of missing link margin.',
   }, {
     id: 'Forecast scope', source: 'spin', status: 'WARNING',
-    explanation: 'Synthetic Earth orientation and Sun direction, five-second samples, and illustrative hardware. Forecast feasibility applies to this training scenario.',
+    explanation: lunar ? 'Synthetic lunar orientation and fixed Sun direction, five-second samples, and illustrative hardware. Starts after insertion.' :
+      'Synthetic Earth orientation and Sun direction, five-second samples, and illustrative hardware. Forecast feasibility applies to this training scenario.',
   })
   return findings
 }
@@ -275,14 +310,65 @@ function buildForecastMission(base: MissionConfiguration) {
 }
 
 export type ForecastMission = Immutable<ReturnType<typeof buildForecastMission>>
-export type ApprovedMission = MissionConfiguration | ForecastMission
+
+export function reviewLunar(plan: LunarPlan, assembly: Assembly, availableCents: number, capabilities: readonly string[]) {
+  const basic = assessDesign(plan.orbit, assembly, availableCents, capabilities, {
+    objective: lunarObjectives[plan.objective], target: lunarSites[plan.target], launch: lunarService,
+    frame: lunarFrame, operationsCents: 1_200_000, targetMatches: true,
+  })
+  const eligible = capabilities.includes('fine-pointing-adcs')
+  basic.findings.push({ id: 'Lunar program eligibility', status: eligible ? 'PASS' : 'FAIL', source: 'attitude',
+    explanation: eligible ? 'Pointing stability research is complete.' : 'Complete the pointing stability study in Headquarters before approving lunar reconnaissance.' })
+  const forecast = basic.orbit ? analyzeForecast({ ...basic, orbit: basic.orbit, environment: lunarEnvironment }, lunarProfile) : null
+  return { ...basic, forecast, findings: forecast ? forecastFindings(basic.findings, forecast, true) : basic.findings }
+}
+
+export const lunarMissionSources = { ...missionSources, ...lunarSources } as const
+
+function buildLunarMission(id: string, plan: LunarPlan, assembly: Assembly, approval: Approval) {
+  const { forecast, ...assessed } = reviewLunar(plan, assembly, approval.availableCents, approval.capabilities)
+  const { spacecraft, orbit, findings } = assessed
+  if (!orbit || !forecast || !spacecraft.payload || !spacecraft.communications || findings.some(finding => finding.status === 'FAIL')) {
+    throw new Error('Resolve failed forecast checks before lunar approval.')
+  }
+  return {
+    ...assessed, orbit, spacecraft: { ...spacecraft, payload: spacecraft.payload, communications: spacecraft.communications },
+    schemaVersion: 3 as const, id, approval, plan, assembly, catalogRevision: assembly.catalog,
+    contractId: 'lunar-reconnaissance-1', units, sources: lunarMissionSources, gravity: lunarGravity,
+    models: { orbit: orbit.initialState.provenance.modelRevision, scenario: 'lunar-reconnaissance-plan-1',
+      environment: lunarEnvironment.revision, sourceRegistry: sourceRegistryRevision },
+    environment: lunarEnvironment, analysisProfile: lunarProfile, rfAcknowledged: true as const,
+    executionInputs: { geometry: lunarProfile.geometry, eclipse: 'moon-cylindrical-solar-shadow-1',
+      groundLink: 'moon-occultation-parallel-earth-service-1', energy: 'moon-shadow-derated-nameplate-battery-1',
+      operationPolicy: lunarProfile.scheduling, powerReserveJ: 0, startingPhase: 'assumed-post-insertion' },
+  }
+}
+
+export type LunarMission = Immutable<ReturnType<typeof buildLunarMission>>
+export type ExecutableMission = ForecastMission | LunarMission
+export type ApprovedMission = MissionConfiguration | ExecutableMission
+
+function parseLunarPlan(value: unknown): LunarPlan {
+  const input = record(value)
+  if (input.body !== 'moon' || input.launch !== 'lunar-service') throw new Error('Invalid lunar scenario.')
+  return { body: 'moon', launch: 'lunar-service', objective: choice(input.objective, lunarObjectives),
+    target: choice(input.target, lunarSites), orbit: parseOrbit(input.orbit),
+    revisedFrom: input.revisedFrom === null ? null : identifier(input.revisedFrom) }
+}
+
+export function approveLunarMission(id: string, rawPlan: LunarPlan, snapshot: Assembly, approval: Approval, rfAcknowledged: boolean): LunarMission {
+  if (rfAcknowledged !== true) throw new Error('Acknowledge that RF link margin is not assessed.')
+  const plan = parseLunarPlan(rawPlan)
+  if (plan.revisedFrom === id) throw new Error('A mission cannot revise itself.')
+  return freeze(structuredClone(buildLunarMission(identifier(id), plan, restoreAssembly(snapshot), parseApproval(approval))))
+}
 
 export function approveForecastMission(id: string, plan: Plan, snapshot: Assembly, approval: Approval, rfAcknowledged: boolean): ForecastMission {
   if (rfAcknowledged !== true) throw new Error('Acknowledge that RF link margin is not assessed.')
   return freeze(buildForecastMission(approveMission(id, plan, snapshot, approval)))
 }
 
-export function forecastApprovedMission(mission: ForecastMission): Forecast {
+export function forecastApprovedMission(mission: ExecutableMission): Forecast {
   return analyzeForecast(mission, mission.analysisProfile)
 }
 
@@ -308,11 +394,16 @@ function matches(value: unknown, expected: unknown, path = '', tolerance = 0): b
 
 export function restoreMission(value: unknown): ApprovedMission {
   const input = record(value)
-  if (input.schemaVersion !== 1 && (input.schemaVersion !== 2 || input.rfAcknowledged !== true || !input.analysisProfile)) {
+  if (input.schemaVersion !== 1 && ((input.schemaVersion !== 2 && input.schemaVersion !== 3) ||
+    input.rfAcknowledged !== true || !input.analysisProfile)) {
     throw new Error('Unsupported mission schema version or missing forecast acknowledgement.')
   }
-  const base = approveMission(identifier(input.id), parsePlan(input.plan), restoreAssembly(input.assembly), parseApproval(input.approval))
-  const rebuilt = input.schemaVersion === 2 ? buildForecastMission(base) : base
+  const id = identifier(input.id)
+  const approval = parseApproval(input.approval)
+  const assembly = restoreAssembly(input.assembly)
+  const rebuilt = input.schemaVersion === 3 ? approveLunarMission(id, parseLunarPlan(input.plan), assembly, approval, true) :
+    input.schemaVersion === 2 ? approveForecastMission(id, parsePlan(input.plan), assembly, approval, true) :
+      approveMission(id, parsePlan(input.plan), assembly, approval)
   if (!matches(input, rebuilt)) throw new Error('Mission configuration does not match its supported scenario, inputs and models.')
   // Shape and vector components have been checked above. Preserve the original
   // approved vectors instead of replacing them with local trig results.

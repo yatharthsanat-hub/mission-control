@@ -3,10 +3,14 @@ import { applyCommand } from '../agency.ts'
 import { readLocal, writeLocal } from '../localSaves.ts'
 import { decodeSave } from '../saveFormat.ts'
 import type { Save } from '../saveFormat.ts'
-import { approvalContext, approveForecastMission, defaultPlan, forecastApprovedMission, forecastReview, launches, maxApprovedMissions, missionSources, objectives, review, targets } from './mission.ts'
+import { approvalContext, approveForecastMission, approveLunarMission, defaultPlan, forecastApprovedMission, forecastReview, launches, lunarMissionSources, lunarService, maxApprovedMissions, missionSources, objectives, review, reviewLunar, targets } from './mission.ts'
 import type { ApprovedMission, Plan } from './mission.ts'
-import { groundTrack } from './orbit.ts'
+import { environment, groundTrack } from './orbit.ts'
 import type { OrbitInput } from './orbit.ts'
+import { lunarEnvironment } from './environments.ts'
+import type { FlightEnvironment } from './environments.ts'
+import { defaultLunarPlan, lunarObjectives, lunarSites } from './lunarScenario.ts'
+import type { LunarPlan } from './lunarScenario.ts'
 import { analyzeForecast, forecastProfile } from './forecast.ts'
 import type { Forecast } from './forecast.ts'
 import { Comparison, ForecastPanel } from './ForecastPanel.tsx'
@@ -23,8 +27,8 @@ const fields: readonly [keyof OrbitInput, string][] = [
   ['periapsisDeg', 'Argument of periapsis (°)'], ['meanAnomalyDeg', 'Initial mean anomaly (°)'],
 ]
 
-function Preview({ orbit, target }: Pick<ReturnType<typeof review>, 'orbit' | 'target'>) {
-  const track = useMemo(() => orbit ? groundTrack(orbit.elements, forecastProfile.durationS) : [], [orbit])
+function Preview({ orbit, target, inputs }: { orbit: ReturnType<typeof review>['orbit']; target: { latitudeDeg: number; longitudeDeg: number }; inputs: FlightEnvironment }) {
+  const track = useMemo(() => orbit ? groundTrack(orbit.elements, forecastProfile.durationS, inputs) : [], [orbit, inputs])
   const lines: string[][] = []
   track.forEach((point, index) => {
     if (!index || Math.abs(point.longitudeDeg - track[index - 1].longitudeDeg) > 180) lines.push([])
@@ -51,13 +55,14 @@ function downloadMission(mission: ApprovedMission) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-type ComparisonInputs = Pick<ReturnType<typeof forecastReview>, 'orbit' | 'budget' | 'launch'> & {
+type ComparisonInputs = Pick<ReturnType<typeof forecastReview>, 'orbit' | 'budget'> & {
+  launch: { readonly label: string }
   spacecraft: { readonly wetKg: number }
   forecast: Forecast | null
   findings: ApprovedMission['findings']
 }
 
-function comparisonCase(label: string, plan: Plan, assessment: ComparisonInputs): ComparisonCase | null {
+function comparisonCase(label: string, plan: Plan | LunarPlan, assessment: ComparisonInputs): ComparisonCase | null {
   if (!assessment.forecast || !assessment.orbit) return null
   return {
     label, scenario: plan.objective + '/' + plan.target, altitudeKm: plan.orbit.altitudeKm,
@@ -74,10 +79,11 @@ export default function Planner() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [justApproved, setJustApproved] = useState(false)
-  const [plan, setPlan] = useState(defaultPlan)
+  const [plan, setPlan] = useState<Plan | LunarPlan>(() =>
+    new URLSearchParams(location.search).get('body') === 'moon' ? defaultLunarPlan : defaultPlan)
   const [craft, setCraft] = useState('draft')
   const [busy, setBusy] = useState(false)
-  const [acknowledged, setAcknowledged] = useState<{ plan: Plan; assembly: Assembly } | null>(null)
+  const [acknowledged, setAcknowledged] = useState<{ plan: Plan | LunarPlan; assembly: Assembly } | null>(null)
   const [pinned, setPinned] = useState<ComparisonCase | null>(null)
   const [comparisonId, setComparisonId] = useState('')
   const pending = useRef(false)
@@ -98,16 +104,19 @@ export default function Planner() {
   const history = save?.missions ?? []
   const assembly = craft === 'draft' ? save?.assembly : history.find(mission => mission.id === craft)?.assembly
   const context = save ? approvalContext(save.id, save.agency) : null
+  const lunar = 'body' in plan
+  const provenance = lunar ? lunarMissionSources : missionSources
   const rfAcknowledged = acknowledged !== null && acknowledged.plan === plan && acknowledged.assembly === assembly
   const assessment = useMemo(() => {
     if (!save || !assembly) return null
     const { availableCents, capabilities } = approvalContext(save.id, save.agency)
-    return forecastReview(review(plan, assembly, availableCents, capabilities))
+    return 'body' in plan ? reviewLunar(plan, assembly, availableCents, capabilities) :
+      forecastReview(review(plan, assembly, availableCents, capabilities))
   }, [save, assembly, plan])
   const approvedBaseline = save?.missions?.find(mission => mission.id === comparisonId)
   const savedComparison = useMemo(() => approvedBaseline ? comparisonCase(
     `Snapshot ${approvedBaseline.id.slice(0, 8)}`, approvedBaseline.plan,
-    { ...approvedBaseline, forecast: approvedBaseline.schemaVersion === 2
+    { ...approvedBaseline, forecast: approvedBaseline.schemaVersion !== 1
       ? forecastApprovedMission(approvedBaseline) : analyzeForecast(approvedBaseline) },
   ) : null, [approvedBaseline])
   const comparison = comparisonId === 'pinned' ? pinned : savedComparison
@@ -123,8 +132,11 @@ export default function Planner() {
     setError('')
     setNotice('')
     try {
-      const mission = approveForecastMission(crypto.randomUUID(), plan, assembly, context, rfAcknowledged)
-      const agency = applyCommand(save.agency, { id: mission.id, kind: 'reserve-mission', cents: mission.budget.totalCents })
+      const id = crypto.randomUUID()
+      const mission = 'body' in plan ? approveLunarMission(id, plan, assembly, context, rfAcknowledged) :
+        approveForecastMission(id, plan, assembly, context, rfAcknowledged)
+      const agency = applyCommand(save.agency, { id: mission.id, kind: 'reserve-mission', cents: mission.budget.totalCents,
+        ...(mission.schemaVersion === 3 ? { destination: 'moon' as const } : {}) })
       const raw = await writeLocal(stored.raw, { ...save, revision: save.revision + 1, agency, missions: [...history, mission] })
       setStored({ raw, save: decodeSave(raw) })
       setJustApproved(true)
@@ -147,7 +159,8 @@ export default function Planner() {
 
   function startNew() {
     setCraft('draft')
-    setPlan(defaultPlan)
+    setPlan(lunar ? defaultLunarPlan : defaultPlan)
+    setAcknowledged(null)
     setNotice('')
     setJustApproved(false)
     document.getElementById('science-objective')?.focus()
@@ -160,7 +173,7 @@ export default function Planner() {
       <nav className="hq-actions" aria-label="Workspaces"><a className="hq-nav-link" href="?">Headquarters</a><a className="hq-nav-link" href="?mode=assembly">Vehicle Assembly</a></nav>
     </div></header>
     <main className="hq-shell hq-main" id="mission-planning" tabIndex={-1}>
-      <div className="hq-heading"><div><p className="hq-kicker">Earth observation program</p><h1>Mission planning</h1>
+      <div className="hq-heading"><div><p className="hq-kicker">{lunar ? 'Lunar reconnaissance program' : 'Earth observation program'}</p><h1>Mission planning</h1>
         <p>Select a spacecraft, define the observing scenario, and review the evidence before committing funds.</p></div>
         {save && <div className="plan-agency"><strong>{save.agency.name}</strong><span>Program day {save.agency.day}</span></div>}</div>
       <div className="hq-status" role="status">{busy ? 'Committing mission…' : notice || (!loaded ? 'Opening local agency save…' : '')}</div>
@@ -169,12 +182,28 @@ export default function Planner() {
       {save && <div className="plan-console">
         <section className="hq-panel plan-setup" aria-labelledby="design-heading">
           <h2 id="design-heading">Mission design</h2>
-          <p className="hq-small">Earth observation training contract reference. Approval reserves agency cash for this plan.</p>
+          <p className="hq-small">{lunar ? 'Scenario begins after assumed successful lunar orbit insertion. Transfer, insertion burns and descent are outside this flight.' : 'Earth observation training contract reference. Approval reserves agency cash for this plan.'}</p>
           <div className="plan-fields">
+            <label>Destination <select value={lunar ? 'moon' : 'earth'} onChange={event => {
+              setPlan(event.target.value === 'moon' ? defaultLunarPlan : defaultPlan)
+              setJustApproved(false)
+              setAcknowledged(null)
+              setNotice('')
+            }}><option value="earth">Earth observation</option><option value="moon">Lunar reconnaissance</option></select></label>
             <label>Spacecraft <select value={craft} onChange={event => setCraft(event.target.value)}>
               <option value="draft">{save.assembly ? `Saved assembly · revision ${save.assembly.revision}` : 'No saved assembly'}</option>
               {history.map(mission => <option key={mission.id} value={mission.id}>Approved snapshot · {mission.objective.label} · {mission.id.slice(0, 8)}</option>)}
             </select></label>
+            {lunar ? <>
+              <label>Science objective <select id="science-objective" value={plan.objective}
+                onChange={event => setPlan({ ...plan, objective: event.target.value as LunarPlan['objective'] })}>
+                {Object.entries(lunarObjectives).map(([id, objective]) => <option key={id} value={id}>{objective.label}</option>)}
+              </select></label>
+              <label>Target region <select value={plan.target} onChange={event => setPlan({ ...plan, target: event.target.value as LunarPlan['target'] })}>
+                {Object.entries(lunarSites).map(([id, site]) => <option key={id} value={id}>{site.label}</option>)}
+              </select></label>
+              <p className="hq-small">{lunarSites[plan.target].interest} · {lunarService.label}</p>
+            </> : <>
             <label>Science objective <select id="science-objective" value={plan.objective} onChange={event => {
               const objective = event.target.value as Plan['objective']
               setPlan({ ...plan, objective, target: objective === 'crops' ? 'valley' : 'delta' })
@@ -185,20 +214,22 @@ export default function Planner() {
             <label>Launch service <select value={plan.launch} onChange={event => setPlan({ ...plan, launch: event.target.value as Plan['launch'] })}>
               {Object.entries(launches).map(([id, launch]) => <option key={id} value={id}>{launch.label}</option>)}
             </select></label>
+            </>}
           </div>
           <fieldset><legend>Orbital elements</legend>
             <div className="plan-fields plan-orbit-fields">{fields.map(([field, label]) => <label key={field}>{label}
               <input type="number" step="any" value={Number.isFinite(plan.orbit[field]) ? plan.orbit[field] : ''}
                 onChange={event => setPlan({ ...plan, orbit: { ...plan.orbit, [field]: event.target.valueAsNumber } })} />
             </label>)}</div>
-            <p className="hq-small">Both apsides must be within 300–1,500 km. Inclination is 0–180°. Other angles use 0° to below 360°.</p>
+            <p className="hq-small">Both apsides must be within {lunar ? '60–400' : '300–1,500'} km. Inclination is 0–180°. Other angles use 0° to below 360°.</p>
+            {lunar && <button className="plan-reference-orbit" type="button" onClick={() => setPlan({ ...plan, orbit: { ...defaultLunarPlan.orbit } })}>Load lunar study orbit</button>}
             {plan.objective === 'crops' && <button className="plan-reference-orbit" type="button" onClick={() => setPlan({
               ...plan, orbit: { ...defaultPlan.orbit, altitudeKm: 400, inclinationDeg: 40, nodeDeg: 240 },
             })}>Load crop study orbit</button>}
           </fieldset>
           {plan.revisedFrom && <p className="hq-small">Revising {plan.revisedFrom.slice(0, 8)}. Approval creates a new commitment. <button onClick={startNew}>Start a new plan</button></p>}
         </section>
-        {assessment?.forecast && <ForecastPanel forecast={assessment.forecast} />}
+        {assessment?.forecast && <ForecastPanel forecast={assessment.forecast} lunar={lunar} />}
         {assessment && <section className="hq-panel forecast-comparison" aria-labelledby="compare-heading">
           <h2 id="compare-heading">Trade study</h2>
           <p className="hq-small">Pin a candidate before changing the design or compare against a saved approval. Saved snapshots use the current forecast model for this comparison.</p>
@@ -215,12 +246,12 @@ export default function Planner() {
         <section className="hq-panel plan-analysis" aria-labelledby="preview-heading">
           <h2 id="preview-heading">Trajectory and spacecraft</h2>
           {assessment ? <>
-            <Preview orbit={assessment.orbit} target={assessment.target} />
+            <Preview orbit={assessment.orbit} target={assessment.target} inputs={lunar ? lunarEnvironment : environment} />
             <p className="hq-small">{assessment.objective.product}. Goal: {assessment.objective.scenes} usable delivered scenes.</p>
             <dl className="plan-metrics">
               <div><dt>Target center · lat / lon</dt><dd>{assessment.target.latitudeDeg.toFixed(2)}°, {assessment.target.longitudeDeg.toFixed(2)}°</dd></div>
               <div><dt>Orbital period</dt><dd>{assessment.orbit ? `${(assessment.orbit.initialState.periodS / 60).toFixed(1)} min` : 'Unavailable'}</dd></div>
-              <div><dt>Perigee / apogee</dt><dd>{assessment.orbit ? `${(assessment.orbit.perigeeM / 1000).toFixed(0)} / ${(assessment.orbit.apogeeM / 1000).toFixed(0)} km` : 'Unavailable'}</dd></div>
+              <div><dt>{lunar ? 'Perilune / apolune' : 'Perigee / apogee'}</dt><dd>{assessment.orbit ? `${(assessment.orbit.perigeeM / 1000).toFixed(0)} / ${(assessment.orbit.apogeeM / 1000).toFixed(0)} km` : 'Unavailable'}</dd></div>
               <div><dt>Wet mass / service limit</dt><dd>{assessment.spacecraft.wetKg.toFixed(2)} / {assessment.launch.maxWetKg} kg</dd></div>
               <div><dt>Stowed XYZ</dt><dd>{assessment.spacecraft.dimensionsM.map(value => value.toFixed(3)).join(' × ')} m</dd></div>
               <div><dt>Nominal output / peak load</dt><dd>{assessment.spacecraft.power.nominalGenerationW} / {assessment.spacecraft.power.maxConcurrentLoadW} W</dd></div>
@@ -237,7 +268,7 @@ export default function Planner() {
             <ul className="plan-findings">{assessment.findings.map(finding => <li key={finding.id}>
               <span className={`plan-status ${finding.status.toLowerCase()}`}>{finding.status}</span>
               <div><strong>{finding.id}</strong><p>{finding.explanation}</p>
-                {finding.source && <a href={missionSources[finding.source].url} target="_blank" rel="noreferrer">{missionSources[finding.source].title}</a>}</div>
+                {finding.source && <a href={provenance[finding.source].url} target="_blank" rel="noreferrer">{provenance[finding.source].title}</a>}</div>
             </li>)}</ul>
           </section>
           <section className="hq-panel plan-budget" aria-labelledby="budget-heading">
@@ -258,8 +289,8 @@ export default function Planner() {
               <button className="hq-primary" disabled={busy || failures > 0 || !rfAcknowledged || history.length >= maxApprovedMissions} onClick={() => void approve()}>Approve and commit funds</button>}
             <p className="hq-small">{justApproved ? 'Review or export the approved snapshot below.' : history.length >= maxApprovedMissions ? 'The local approved-plan history is full.' : failures ? 'Resolve blocking checks to approve.' : !rfAcknowledged ? 'Acknowledge the RF assumption to enable training approval.' : 'Approval freezes the inputs, assumptions, and unresolved warnings for handoff.'}</p>
             <details className="hq-detail"><summary>Scientific inputs and limits</summary>
-              <p>JPL gravity and sidereal rotation and NASA Landsat 9 band intervals are sourced. Vehicle, cost, target centers, station, and lighting are illustrative. The orbit kernel is TESTED.</p>
-              <ul>{Object.values(missionSources).map(source => <li key={source.locator + source.title}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a> · {source.locator}</li>)}</ul>
+              <p>{lunar ? 'JPL lunar GM and NASA mean radius and rotation are sourced. Candidate tiles, fixed Sun direction, Earth service and hardware are illustrative.' : 'JPL gravity and sidereal rotation and NASA Landsat 9 band intervals are sourced. Vehicle, cost, target centers, station, and lighting are illustrative.'} The orbit kernel is TESTED.</p>
+              <ul>{Object.values(provenance).map(source => <li key={source.locator + source.title}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a> · {source.locator}</li>)}</ul>
             </details>
           </section>
         </>}
@@ -267,7 +298,7 @@ export default function Planner() {
           <h2 id="history-heading">Approved missions</h2>
           {history.length ? <ul>{history.map(mission => <li key={mission.id}>
             <div><strong>{mission.objective.label} · {mission.id.slice(0, 8)}</strong><p>Day {mission.approval.programDay} · spacecraft revision {mission.assembly.revision} · {usd(mission.budget.totalCents)} committed · {mission.schemaVersion === 1 ? 'Phase 2 approval' : 'Forecast checked'}</p></div>
-            <div className="hq-actions">{mission.schemaVersion === 2 && <a href={`?mode=operations&mission=${mission.id}`}>Open Mission Control</a>}
+            <div className="hq-actions">{mission.schemaVersion !== 1 && <a href={`?mode=operations&mission=${mission.id}`}>Open Mission Control</a>}
               <button onClick={() => revise(mission)}>Revise {mission.id.slice(0, 8)}</button><button onClick={() => downloadMission(mission)}>Export mission JSON <span className="plan-id">{mission.id.slice(0, 8)}</span></button></div>
           </li>)}</ul> : <p>Approved mission snapshots will appear here.</p>}
         </section>

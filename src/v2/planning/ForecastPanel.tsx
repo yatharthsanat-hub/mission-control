@@ -1,5 +1,6 @@
 import { forecastProfile } from './forecast.ts'
 import type { Forecast, Interval } from './forecast.ts'
+import { lunarProfile } from './lunarScenario.ts'
 
 const hours = (s: number) => {
   const two = (n: number) => String(n).padStart(2, '0')
@@ -20,7 +21,7 @@ function Timeline({ windows, total, label, tone }: { windows: readonly Interval[
   </div>
 }
 
-export function ForecastPanel({ forecast }: { forecast: Forecast }) {
+export function ForecastPanel({ forecast, lunar = false }: { forecast: Forecast; lunar?: boolean }) {
   const { durationS, instrument, science, power, communications, missed, contacts, accesses } = forecast
   const minCharge = minSoc(forecast)
   const reasons = [
@@ -36,7 +37,7 @@ export function ForecastPanel({ forecast }: { forecast: Forecast }) {
     </div>
     <div className="forecast-timeline" aria-label="Forecast timeline in elapsed mission time">
       <Timeline label="Target access" windows={accesses} total={durationS} tone="target" />
-      <Timeline label="Ground contact" windows={contacts} total={durationS} tone="contact" />
+      <Timeline label={lunar ? 'Earth service' : 'Ground contact'} windows={contacts} total={durationS} tone="contact" />
       <Timeline label="Sunlight" windows={forecast.sunlight} total={durationS} tone="sunlight" />
       <Timeline label="Eclipse" windows={forecast.eclipses} total={durationS} tone="eclipse" />
       {batteryPoints && <div className="forecast-lane"><span>Battery charge</span>
@@ -53,12 +54,12 @@ export function ForecastPanel({ forecast }: { forecast: Forecast }) {
       </section>
       <section><h3>Energy and operations</h3>
         <p>{minCharge?.toFixed(1) ?? '—'}% minimum charge · {(power.endChargeJ / 3600).toFixed(2)} Wh at end · {power.unmetJ.toFixed(1)} J unserved</p>
-        <p>Starts fully charged. Sunlit output is {forecastProfile.solarOutputFraction * 100}% of nameplate. Captured {science.captured}, with {mb(science.onboardBits)} MB onboard at end.</p>
+        <p>Starts fully charged. Sunlit output is {(lunar ? lunarProfile : forecastProfile).solarOutputFraction * 100}% of nameplate. Captured {science.captured}, with {mb(science.onboardBits)} MB onboard at end.</p>
         <p>Blocked 5 s samples · Imaging power {forecast.blockedOperations.imagingPower}, storage {forecast.blockedOperations.imagingStorage}, downlink priority {forecast.blockedOperations.imagingConflict}. Downlink power {forecast.blockedOperations.downlinkPower}.</p>
       </section>
       <section><h3>Communications feasibility</h3>
         <p><strong>RF link budget {communications.linkBudget}</strong> · {contacts.length} geometry windows</p>
-        <p>{communications.rateBps / 1000} kb/s illustrative cap · {mb(communications.contactCapacityBits)} MB geometric upper bound · {mb(communications.deliveredBits)} MB forecast return. Path loss uses an illustrative {communications.frequencyHz / 1e9} GHz carrier.</p>
+        <p>{communications.rateBps / 1000} kb/s illustrative cap · {mb(communications.contactCapacityBits)} MB geometric upper bound · {mb(communications.deliveredBits)} MB forecast return. {lunar ? 'Contacts clear the Moon toward an assumed fixed Earth direction. Station availability and link margin are unassessed.' : communications.frequencyHz !== null && `Path loss uses an illustrative ${communications.frequencyHz / 1e9} GHz carrier.`}</p>
       </section>
     </div>
     <details className="hq-detail"><summary>Target windows and missed geometry</summary>
@@ -72,14 +73,14 @@ export function ForecastPanel({ forecast }: { forecast: Forecast }) {
       <p>Rejected samples by first failed check (one sample every 5 s).</p>
       <ul>{reasons.filter(([, count]) => count > 0).map(([reason, count]) => <li key={reason}>{reason} · {count.toLocaleString()}</li>)}</ul>
     </details>
-    <details className="hq-detail"><summary>Ground-station windows and path loss</summary>
-      <p>Fictional terminal at 35° N, 106° W with a 10° elevation mask. Path loss excludes antenna gains, transmit power, receiver noise, atmospheric losses, and other link terms.</p>
-      {contacts.length ? <div className="hq-table-scroll" tabIndex={0} role="region" aria-label="Ground contact windows"><table>
-        <thead><tr><th>Start T+</th><th>Duration</th><th>Slant range</th><th>Peak elevation</th><th>Max path loss</th></tr></thead>
+    <details className="hq-detail"><summary>{lunar ? 'Assumed Earth visibility windows' : 'Ground-station windows and path loss'}</summary>
+      <p>{lunar ? 'A parallel ray toward the scenario Earth direction must clear the lunar sphere. Station elevation, slant range and path loss are unassessed.' : 'Fictional terminal at 35° N, 106° W with a 10° elevation mask. Path loss excludes antenna gains, transmit power, receiver noise, atmospheric losses, and other link terms.'}</p>
+      {contacts.length ? <div className="hq-table-scroll" tabIndex={0} role="region" aria-label={lunar ? 'Earth service contact windows' : 'Ground contact windows'}><table>
+        <thead><tr><th>Start T+</th><th>Duration</th>{!lunar && <><th>Slant range</th><th>Peak elevation</th><th>Max path loss</th></>}</tr></thead>
         <tbody>{contacts.map(window => <tr key={window.startS}><td>{hours(window.startS)}</td><td>{window.endS - window.startS} s</td>
-          <td>{(window.minRangeM / 1000).toFixed(0)}–{(window.maxRangeM / 1000).toFixed(0)} km</td>
-          <td>{window.maxElevationDeg.toFixed(1)}°</td><td>{window.maxPathLossDb.toFixed(1)} dB</td></tr>)}</tbody>
-      </table></div> : <p>No contact clears the elevation mask.</p>}
+          {!lunar && <><td>{window.minRangeM !== null && window.maxRangeM !== null ? `${(window.minRangeM / 1000).toFixed(0)}–${(window.maxRangeM / 1000).toFixed(0)} km` : '—'}</td>
+            <td>{window.maxElevationDeg === null ? '—' : window.maxElevationDeg.toFixed(1) + '°'}</td><td>{window.maxPathLossDb === null ? '—' : window.maxPathLossDb.toFixed(1) + ' dB'}</td></>}</tr>)}</tbody>
+      </table></div> : <p>{lunar ? 'No sampled window clears lunar occultation.' : 'No contact clears the elevation mask.'}</p>}
     </details>
     <details className="hq-detail"><summary>Eclipse intervals</summary>
       {forecast.eclipses.length ? <ul>{forecast.eclipses.map(interval => <li key={interval.startS}>{hours(interval.startS)}–{hours(interval.endS)} · {interval.endS - interval.startS} s</li>)}</ul> : <p>No sampled eclipse.</p>}

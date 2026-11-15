@@ -1,10 +1,10 @@
 import { createFlightModel, forecastProfile } from './flightModel.ts'
-import type { ForecastInput } from './flightModel.ts'
+import type { FlightProfile, ForecastInput } from './flightModel.ts'
 export { forecastProfile } from './flightModel.ts'
 
 export interface Interval { startS: number; endS: number }
 interface Access extends Interval { bestGsdM: number; rangeM: number; offNadirDeg: number; acrossM: number; alongM: number }
-interface Contact extends Interval { minRangeM: number; maxRangeM: number; maxElevationDeg: number; maxPathLossDb: number }
+interface Contact extends Interval { minRangeM: number | null; maxRangeM: number | null; maxElevationDeg: number | null; maxPathLossDb: number | null }
 const extend = <T extends Interval>(list: T[], startS: number, stepS: number, build: () => Omit<T, keyof Interval>): T => {
   const prior = list.at(-1)
   if (prior?.endS === startS) {
@@ -16,7 +16,7 @@ const extend = <T extends Interval>(list: T[], startS: number, stepS: number, bu
   return next
 }
 
-export function analyzeForecast(input: ForecastInput, profile: typeof forecastProfile = forecastProfile) {
+export function analyzeForecast(input: ForecastInput, profile: FlightProfile = forecastProfile) {
   const model = createFlightModel(input, profile)
   const { durationS, stepS } = profile
   const accesses: Access[] = []
@@ -36,15 +36,15 @@ export function analyzeForecast(input: ForecastInput, profile: typeof forecastPr
     const frame = model.sample(startS)
     extend(frame.eclipse ? eclipses : sunlight, startS, stepS, () => ({}))
     const { station, access } = frame
-    if (station.inContact && station.pathLossDb !== null) {
+    if (station.inContact) {
       const lossDb = station.pathLossDb
       const contact = extend(contacts, startS, stepS, () => ({
         minRangeM: station.rangeM, maxRangeM: station.rangeM, maxElevationDeg: station.elevationDeg, maxPathLossDb: lossDb,
       }))
-      contact.minRangeM = Math.min(contact.minRangeM, station.rangeM)
-      contact.maxRangeM = Math.max(contact.maxRangeM, station.rangeM)
-      contact.maxPathLossDb = Math.max(contact.maxPathLossDb, lossDb)
-      contact.maxElevationDeg = Math.max(contact.maxElevationDeg, station.elevationDeg)
+      if (contact.minRangeM !== null && station.rangeM !== null) contact.minRangeM = Math.min(contact.minRangeM, station.rangeM)
+      if (contact.maxRangeM !== null && station.rangeM !== null) contact.maxRangeM = Math.max(contact.maxRangeM, station.rangeM)
+      if (contact.maxPathLossDb !== null && lossDb !== null) contact.maxPathLossDb = Math.max(contact.maxPathLossDb, lossDb)
+      if (contact.maxElevationDeg !== null && station.elevationDeg !== null) contact.maxElevationDeg = Math.max(contact.maxElevationDeg, station.elevationDeg)
       contactCapacityBits += model.geometryCapacity
     }
     if (access.available) {

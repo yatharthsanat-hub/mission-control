@@ -1,5 +1,7 @@
 import { Canvas } from '@react-three/fiber'
 import { Line, OrbitControls } from '@react-three/drei'
+import { useEffect, useMemo } from 'react'
+import { CanvasTexture, SRGBColorSpace } from 'three'
 import { siteUnit } from '../planning/geometry.ts'
 import type { Vector } from '../planning/geometry.ts'
 
@@ -11,17 +13,53 @@ const grid = [
     Array.from({ length: 37 }, (_, i) => siteUnit({ latitudeDeg: -90 + i * 5, longitudeDeg }))),
 ]
 
-export default function Globe({ orbit, track, craft, target, station, sun, access, contact, onLost }: {
+function makeLunarTexture() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 256
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  ctx.fillStyle = '#a8a8aa'
+  ctx.fillRect(0, 0, 512, 256)
+  let seed = 731
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return seed / 4294967296
+  }
+  for (let index = 0; index < 108; index++) {
+    const x = random() * 512
+    const y = random() * 256
+    const size = 2 + random() ** 2 * 24
+    ctx.beginPath()
+    ctx.arc(x, y, size, 0, Math.PI * 2)
+    ctx.fillStyle = index < 12 ? '#808084' : '#99999e'
+    ctx.fill()
+    ctx.strokeStyle = '#b4b4b5'
+    ctx.stroke()
+  }
+  const texture = new CanvasTexture(canvas)
+  texture.colorSpace = SRGBColorSpace
+  return texture
+}
+
+export default function Globe({ orbit, track, craft, target, station, sun, access, contact, lunar, earthDirection, acquired, onLost }: {
   orbit: readonly Vector[]
   track: readonly Vector[]
   craft: Vector
   target: Vector
-  station: Vector
+  station: Vector | null
   sun: Vector
+  earthDirection: Vector | null
+  lunar: boolean
+  acquired: boolean
   access: boolean
   contact: boolean
   onLost: () => void
 }) {
+  const texture = useMemo(() => lunar ? makeLunarTexture() : null, [lunar])
+  useEffect(() => () => texture?.dispose(), [texture])
+  const contactEnd: Vector | null = earthDirection ?
+    [craft[0] + earthDirection[0] * .55, craft[1] + earthDirection[1] * .55, craft[2] + earthDirection[2] * .55] : station
   return <Canvas frameloop="demand" camera={{ position: [2.05, 1.65, 2.2], near: .02, far: 25, fov: 40 }}
     dpr={[1, 1.5]} fallback={<p>WebGL is unavailable. Select the 2D ground track.</p>}
     onCreated={({ gl }) => gl.domElement.addEventListener('webglcontextlost', onLost, { once: true })}>
@@ -31,7 +69,7 @@ export default function Globe({ orbit, track, craft, target, station, sun, acces
     <OrbitControls minDistance={1.25} maxDistance={7} enableDamping={false} makeDefault />
     <mesh>
       <sphereGeometry args={[1, 56, 36]} />
-      <meshStandardMaterial color="#133653" roughness={.92} />
+      <meshStandardMaterial color={lunar ? '#babac0' : '#133653'} map={texture} roughness={.92} />
     </mesh>
     <group scale={1.004}>
       {grid.map((line, index) => <Line key={index} points={line.map(three)} color="#507590" transparent opacity={.45} />)}
@@ -40,10 +78,10 @@ export default function Globe({ orbit, track, craft, target, station, sun, acces
       <Line points={track.map(three)} color="#5cbdcb" transparent opacity={.65} />
     </group>
     <Line points={orbit.map(three)} color="#87d8af" lineWidth={1.7} />
-    {contact && <Line points={[three(craft), three(station)]} color="#79adff" lineWidth={2} />}
+    {contact && contactEnd && <Line points={[three(craft), three(contactEnd)]} color="#79adff" lineWidth={2} />}
     {access && <Line points={[three(craft), three(target)]} color="#ffce89" lineWidth={2} />}
-    <mesh position={three(target)}><sphereGeometry args={[.023, 12, 8]} /><meshBasicMaterial color="#ffce89" /></mesh>
-    <mesh position={three(station)}><sphereGeometry args={[.021, 12, 8]} /><meshBasicMaterial color="#79adff" /></mesh>
+    <mesh position={three(target)}><sphereGeometry args={[.023, 12, 8]} /><meshBasicMaterial color={acquired ? '#87d8af' : '#ffce89'} /></mesh>
+    {station && <mesh position={three(station)}><sphereGeometry args={[.021, 12, 8]} /><meshBasicMaterial color="#79adff" /></mesh>}
     <mesh position={three(craft)}><octahedronGeometry args={[.035]} /><meshBasicMaterial color="#eafdf4" /></mesh>
   </Canvas>
 }

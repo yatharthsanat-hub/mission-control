@@ -3,12 +3,13 @@ import { readLocal, writeLocal } from '../localSaves.ts'
 import { decodeSave } from '../saveFormat.ts'
 import type { Save } from '../saveFormat.ts'
 import { forecastApprovedMission } from '../planning/mission.ts'
-import type { ForecastMission } from '../planning/mission.ts'
+import type { ExecutableMission } from '../planning/mission.ts'
 import type { Forecast } from '../planning/forecast.ts'
 import { accessReasons } from '../planning/flightModel.ts'
 import { createMissionRun } from './run.ts'
 import type { CommandKind, MissionRecord, MissionTelemetry } from './run.ts'
 import { OrbitView } from './OrbitView.tsx'
+import { LunarReview } from './LunarReview.tsx'
 import '../headquarters.css'
 import './operations.css'
 
@@ -32,8 +33,8 @@ function EventLog({ events }: Pick<MissionTelemetry, 'events'>) {
   </section>
 }
 
-function Windows({ forecast, elapsedS }: { forecast: Forecast; elapsedS: number }) {
-  const lanes = [['Target access', forecast.accesses, 'target'], ['Ground contact', forecast.contacts, 'station'], ['Eclipse', forecast.eclipses, 'eclipse']] as const
+function Windows({ forecast, elapsedS, lunar }: { forecast: Forecast; elapsedS: number; lunar: boolean }) {
+  const lanes = [['Target access', forecast.accesses, 'target'], [lunar ? 'Earth service' : 'Ground contact', forecast.contacts, 'station'], ['Eclipse', forecast.eclipses, 'eclipse']] as const
   return <section className="hq-panel ops-windows" aria-labelledby="windows-heading">
     <h2 id="windows-heading">Opportunity timeline</h2>
     <p>Geometry windows from the shared flight model · White cursor marks mission time</p>
@@ -50,16 +51,17 @@ function Windows({ forecast, elapsedS }: { forecast: Forecast; elapsedS: number 
   </section>
 }
 
-function ScienceReview({ mission, forecast, data }: { mission: ForecastMission; forecast: Forecast; data: MissionTelemetry }) {
+function ScienceReview({ mission, forecast, data }: { mission: ExecutableMission; forecast: Forecast; data: MissionTelemetry }) {
   const { resources, goal } = data
   const sceneBits = mission.spacecraft.payload.sceneBits
+  const lunar = mission.schemaVersion === 3
   const rows = [
     ['Target windows', forecast.accesses.length, data.targetWindows],
-    ['Ground contacts', forecast.contacts.length, data.contactWindows],
+    [lunar ? 'Assumed Earth service windows' : 'Ground contacts', forecast.contacts.length, data.contactWindows],
     ['Scenes acquired', forecast.science.captured, resources.captured],
     ['Science acquired', sizeMB(forecast.science.captured * sceneBits), sizeMB(resources.captured * sceneBits)],
     ['Missed observing windows while below quota', '—', data.missedObservations],
-    ['Missed ground contacts with queued data', '—', data.missedContacts],
+    ['Missed contacts with queued data', '—', data.missedContacts],
     ['Complete scenes delivered', forecast.communications.delivered, resources.delivered],
     ['Data transmitted', sizeMB(forecast.communications.deliveredBits), sizeMB(resources.deliveredBits)],
     ['Data remaining onboard', sizeMB(forecast.science.onboardBits), sizeMB(resources.occupiedBits)],
@@ -86,14 +88,14 @@ function ScienceReview({ mission, forecast, data }: { mission: ForecastMission; 
     </div>
     <h3>Program accounting</h3><p>{money(mission.budget.totalCents)} was committed at approval. Mission runs and replays add no charges or grants. The agency’s approval ledger remains the financial record.</p>
     <details className="hq-detail"><summary>Scientific sources and model confidence</summary>
-      <p>Two-body propagation and free-space path loss are TESTED. Integrated mission behavior is ILLUSTRATIVE. RF link margin is NOT ASSESSED. Received data use the acknowledged illustrative service rate.</p>
+      <p>{lunar ? 'Lunar two-body propagation is TESTED. The lunar sphere, Sun direction, and Earth visibility scenario are ILLUSTRATIVE.' : 'Two-body propagation and free-space path loss are TESTED. Integrated mission behavior is ILLUSTRATIVE.'} RF link margin is NOT ASSESSED. Received data use the acknowledged illustrative service rate.</p>
       <p>Flight inputs · {mission.models.orbit} · {mission.analysisProfile.revision} · {mission.catalogRevision}</p>
       <ul>{Object.entries(mission.sources).map(([id, source]) => <li key={id}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a> · {source.locator}</li>)}</ul>
     </details>
   </section>
 }
 
-function Flight({ mission, opened }: { mission: ForecastMission; opened: OpenSave }) {
+function Flight({ mission, opened }: { mission: ExecutableMission; opened: OpenSave }) {
   const store = useRef(opened)
   const saveQueue = useRef(Promise.resolve())
   const saveRequest = useRef(0)
@@ -108,6 +110,7 @@ function Flight({ mission, opened }: { mission: ForecastMission; opened: OpenSav
   const carry = useRef(0)
   const forecast = useMemo(() => forecastApprovedMission(mission), [mission])
   const { stepS, durationS } = mission.analysisProfile
+  const lunar = mission.schemaVersion === 3
 
   const saveProgress = useCallback((record: MissionRecord) => {
     const request = ++saveRequest.current
@@ -192,13 +195,15 @@ function Flight({ mission, opened }: { mission: ForecastMission; opened: OpenSav
   const storage = percent(resources.occupiedBits, mission.spacecraft.storageCapacityBits)
 
   return <>
-    <div className="ops-title"><div><p className="hq-kicker">Mission Control · Earth observation</p><h1>{mission.objective.label}</h1>
-      <p>{mission.target.label} · Approved spacecraft revision {mission.assembly.revision}</p></div>
+    <div className="ops-title"><div><p className="hq-kicker">Mission Control · {lunar ? 'Lunar reconnaissance' : 'Earth observation'}</p><h1>{mission.objective.label}</h1>
+      <p>{mission.target.label} · Approved spacecraft revision {mission.assembly.revision}</p>
+      {lunar && <p>Flight begins in Moon-centered orbit after assumed insertion.</p>}</div>
       <div className="ops-clock"><span>{data.complete ? 'Mission complete' : !started ? 'Awaiting start' : playing ? 'Running' : 'Paused'}</span>
         <strong>T+{clock(data.elapsedS)}</strong><small>Elapsed TDB · {mission.orbit.elements.frame}</small></div></div>
     <p className="ops-save" role="status">{status}</p>
     {error && <p className="hq-alert" role="alert">{error} <a href={location.search}>Reload saved flight</a></p>}
     {data.complete && <ScienceReview mission={mission} forecast={forecast} data={data} />}
+    {data.complete && mission.schemaVersion === 3 && <LunarReview mission={mission} data={data} save={opened.save} />}
     <div className="ops-grid">
       <OrbitView mission={mission} telemetry={data} />
       <section className="hq-panel ops-console" aria-labelledby="console-heading">
@@ -235,7 +240,8 @@ function Flight({ mission, opened }: { mission: ForecastMission; opened: OpenSav
         </fieldset>
         <fieldset disabled={!started || data.complete}>
           <legend>Downlink</legend>
-          <p>{upcoming.station.inContact ? `Contact above mask · ${upcoming.station.elevationDeg.toFixed(1)}°` : 'Station outside contact mask.'} RF margin NOT ASSESSED.</p>
+          <p>{lunar ? (upcoming.station.inContact ? 'Assumed Earth direction clear of lunar limb.' : 'Moon occults the assumed Earth direction.') :
+            (upcoming.station.inContact ? `Contact above mask · ${upcoming.station.elevationDeg?.toFixed(1)}°` : 'Station outside contact mask.')} RF margin NOT ASSESSED.</p>
           <div className="ops-actions">
             <button type="button" aria-pressed={data.radio} onClick={() => send(data.radio ? 'standby-downlink' : 'arm-downlink')}>{data.radio ? 'Hold downlink' : 'Arm downlink'}</button>
             <button type="button" onClick={() => send('downlink-now')}>Transmit 5 s now</button>
@@ -251,7 +257,7 @@ function Flight({ mission, opened }: { mission: ForecastMission; opened: OpenSav
         </div>
         <p className="hq-small">Jump and end controls simulate every intervening interval with the current modes.</p>
       </section>
-      <Windows forecast={forecast} elapsedS={data.elapsedS} />
+      <Windows forecast={forecast} elapsedS={data.elapsedS} lunar={lunar} />
       <EventLog events={data.events} />
     </div>
   </>
@@ -280,7 +286,7 @@ export default function Workspace() {
         <a href="?mode=planning" className="hq-nav-link">Mission Planning</a><a href="?mode=operations" className="hq-nav-link">Approved missions</a></nav>
     </div></header>
     <main id="operations" className="hq-shell hq-main" tabIndex={-1}>
-      {mission?.schemaVersion === 2 && opened ? <Flight mission={mission} opened={opened} /> : <section className="hq-panel ops-list">
+      {mission && mission.schemaVersion !== 1 && opened ? <Flight mission={mission} opened={opened} /> : <section className="hq-panel ops-list">
         <h1>Mission Control</h1>
         {!loaded && <p role="status">Opening agency flight records…</p>}
         {error && <p className="hq-alert" role="alert">{error}</p>}

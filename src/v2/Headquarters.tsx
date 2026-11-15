@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Icon } from '../game/Visuals.tsx'
-import { applyCommand, createAgency, finances, unlockedCapabilities } from './agency.ts'
+import { applyCommand, createAgency, finances, lunarGrantCents, lunarGrantClaimed, unlockedCapabilities } from './agency.ts'
 import type { Command } from './agency.ts'
 import { readLocal, writeLocal } from './localSaves.ts'
 import type { StoredSave } from './localSaves.ts'
@@ -15,7 +15,7 @@ import './headquarters.css'
 
 const dollars = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const usd = (cents: number) => dollars.format(cents / 100)
-type Intent = { kind: 'fund-training' | 'start-research' | 'advance-day' } | Omit<Extract<Command, { kind: 'submit-review' }>, 'id'>
+type Intent = { kind: 'fund-training' | 'start-research' | 'advance-day' | 'claim-lunar-grant' } | Omit<Extract<Command, { kind: 'submit-review' }>, 'id'>
 
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : 'Local storage is unavailable or the action failed.'
@@ -260,6 +260,15 @@ function AgencyWorkspace({ save, busy, dispatch }: { save: Save; busy: boolean; 
           {unlockedCapabilities(agency).includes(research.capabilityId) && <p className="hq-good">Unlocked · {research.capability}</p>}
         </section>
       </div>
+      {researchState.status === 'complete' && <section className="hq-panel" aria-labelledby="lunar-program-title">
+        <h2 id="lunar-program-title">Lunar reconnaissance program</h2>
+        <p>Pointing stability research unlocks a one-time illustrative program grant of {usd(lunarGrantCents)}. Mission approval still requires a feasible forecast and available cash.</p>
+        <div className="hq-actions">
+          {lunarGrantClaimed(agency) ? <span>Program grant received</span> :
+            <button disabled={busy} onClick={() => dispatch({ kind: 'claim-lunar-grant' })}>Claim lunar program grant</button>}
+          <a className="hq-nav-link" href="?mode=planning&amp;body=moon">Plan lunar reconnaissance</a>
+        </div>
+      </section>}
       <section className="hq-panel hq-ledger" aria-labelledby="ledger-title">
         <div className="hq-section-heading"><h2 id="ledger-title">Financial ledger</h2><span>Illustrative USD · newest first</span></div>
         <div className="hq-table-scroll" tabIndex={0} role="region" aria-label="Ledger transactions">

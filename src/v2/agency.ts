@@ -14,9 +14,9 @@ export interface LedgerEntry {
 }
 
 export type Command =
-  | { id: string; kind: 'fund-training' | 'start-research' | 'advance-day' }
+  | { id: string; kind: 'fund-training' | 'start-research' | 'advance-day' | 'claim-lunar-grant' }
   | { id: string; kind: 'submit-review'; payload: PayloadId; axisM: TrainingOrbitM }
-  | { id: string; kind: 'reserve-mission'; cents: number }
+  | { id: string; kind: 'reserve-mission'; cents: number; destination?: 'moon' }
 
 export interface Agency {
   name: string
@@ -69,6 +69,11 @@ export function finances(ledger: readonly LedgerEntry[]) {
 }
 
 export const maxCommands = 2000
+export const lunarGrantCents = 25_000_000
+
+export function lunarGrantClaimed(agency: Agency) {
+  return agency.commands.some(command => command.kind === 'claim-lunar-grant')
+}
 
 export function unlockedCapabilities(agency: Agency): readonly (typeof research.capabilityId)[] {
   return agency.research.status === 'complete' ? [research.capabilityId] : []
@@ -80,7 +85,8 @@ export function applyCommand(agency: Agency, command: Command): Agency {
     if (duplicate.kind !== command.kind ||
       (duplicate.kind === 'submit-review' && command.kind === 'submit-review' &&
         (duplicate.payload !== command.payload || duplicate.axisM !== command.axisM)) ||
-      (duplicate.kind === 'reserve-mission' && command.kind === 'reserve-mission' && duplicate.cents !== command.cents)) {
+      (duplicate.kind === 'reserve-mission' && command.kind === 'reserve-mission' &&
+        (duplicate.cents !== command.cents || duplicate.destination !== command.destination))) {
       throw new Error('A different transaction already used this identifier.')
     }
     return agency
@@ -93,9 +99,14 @@ export function applyCommand(agency: Agency, command: Command): Agency {
   }
 
   switch (command.kind) {
+    case 'claim-lunar-grant':
+      if (agency.research.status !== 'complete') throw new Error('Complete the pointing stability study before claiming the lunar program grant.')
+      if (lunarGrantClaimed(agency)) throw new Error('The one-time lunar program grant has already been claimed.')
+      add('agency', 'grant', lunarGrantCents, 'Illustrative lunar program grant')
+      break
     case 'reserve-mission':
       if (cents(command.cents) === 0 || finances(ledger).available < command.cents) throw new Error('Insufficient available cash or invalid commitment.')
-      add('planning', 'commitment', command.cents, 'Approved Earth observation plan')
+      add('planning', 'commitment', command.cents, command.destination === 'moon' ? 'Approved lunar reconnaissance plan' : 'Approved Earth observation plan')
       break
     case 'fund-training':
       if (agency.mission !== 'available') throw new Error('Training funds are already committed or settled.')

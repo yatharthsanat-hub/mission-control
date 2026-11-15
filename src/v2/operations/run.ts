@@ -1,5 +1,6 @@
 import { createFlightModel } from '../planning/flightModel.ts'
-import type { ApprovedMission, ForecastMission } from '../planning/mission.ts'
+import type { ApprovedMission, ExecutableMission } from '../planning/mission.ts'
+import { environmentModel } from '../planning/environments.ts'
 
 export const commands = {
   'arm-imaging': 'Arm imaging',
@@ -24,7 +25,7 @@ const revision = 'earth-operations-1'
 const field = (value: unknown) => value && typeof value === 'object' && !Array.isArray(value)
   ? value as Record<string, unknown> : {}
 
-export function restoreRecord(value: unknown, mission: ForecastMission): MissionRecord {
+export function restoreRecord(value: unknown, mission: ExecutableMission): MissionRecord {
   const record = field(value)
   const { durationS, stepS } = mission.analysisProfile
   if (record.revision !== revision || record.missionId !== mission.id || typeof record.elapsedS !== 'number' ||
@@ -50,6 +51,14 @@ export interface MissionEvent {
   readonly text: string
 }
 
+export interface ObservationSample {
+  readonly acquiredAtS: number
+  readonly gsdM: number
+  readonly acrossM: number
+  readonly alongM: number
+  readonly sunElevationDeg: number
+}
+
 function modeFor(kinds: readonly CommandKind[], imaging: boolean, radio: boolean) {
   for (const kind of kinds) {
     if (kind === 'arm-imaging' || kind === 'standby-imaging') imaging = kind === 'arm-imaging'
@@ -59,11 +68,13 @@ function modeFor(kinds: readonly CommandKind[], imaging: boolean, radio: boolean
 }
 
 export function createMissionRun(mission: ApprovedMission, raw?: MissionRecord) {
-  if (mission.schemaVersion !== 2) throw new Error('Revise and reapprove this legacy mission in Mission Planning before flight.')
+  if (mission.schemaVersion === 1) throw new Error('Revise and reapprove this legacy mission in Mission Planning before flight.')
+  const lunar = environmentModel(mission.environment).body === 'moon'
   const { durationS, stepS, lowChargeFraction } = mission.analysisProfile
   const model = createFlightModel(mission, mission.analysisProfile)
   const saved = raw ? restoreRecord(raw, mission) : undefined
   const orders = [...(saved?.orders ?? [])]
+  const observations: ObservationSample[] = []
   const events: MissionEvent[] = [Object.freeze({ atS: 0, kind: 'milestone', text: 'Mission started in the approved orbit. Payload and radio in standby.' })]
   let orderIndex = 0
   let elapsedS = 0
@@ -103,8 +114,9 @@ export function createMissionRun(mission: ApprovedMission, raw?: MissionRecord) 
   function closeContact(atS: number) {
     if (dataDuringContact && resources.deliveredBits === sentBeforeWindow) {
       missedContacts++
-      log('warning', 'Ground contact ended with no transmission while science was waiting. Check radio mode and available power.', atS)
-    } else log('contact', 'Geometric contact ended.', atS)
+      log('warning', (lunar ? 'Earth service window' : 'Ground contact') +
+        ' ended with no transmission while science was waiting. Check radio mode and available power.', atS)
+    } else log('contact', lunar ? 'Assumed Earth direction is occulted or the mission ended.' : 'Geometric contact ended.', atS)
   }
 
   function step() {
@@ -124,7 +136,8 @@ export function createMissionRun(mission: ApprovedMission, raw?: MissionRecord) 
         contactWindows++
         sentBeforeWindow = resources.deliveredBits
         dataDuringContact = false
-        log('contact', 'Ground contact opened above the elevation mask. RF margin NOT ASSESSED.')
+        log('contact', lunar ? 'Assumed Earth direction cleared the lunar limb. RF margin NOT ASSESSED.' :
+          'Ground contact opened above the elevation mask. RF margin NOT ASSESSED.')
       } else closeContact(elapsedS)
     }
     if (frame.eclipse !== previousEclipse || elapsedS === 0) {
@@ -156,6 +169,8 @@ export function createMissionRun(mission: ApprovedMission, raw?: MissionRecord) 
         'Radio began transmitting queued science at the illustrative service rate.', endS)
     }
     if (result.resources.captured > resources.captured && frame.access.available) {
+      observations.push(Object.freeze({ acquiredAtS: elapsedS + stepS / 2, gsdM: frame.access.bestGsdM,
+        acrossM: frame.access.acrossM, alongM: frame.access.alongM, sunElevationDeg: frame.access.sunElevationDeg }))
       log('science', `Observation acquired at ${frame.access.bestGsdM.toFixed(1)} m/px. ${model.instrument.sceneBits.toLocaleString('en-US')} bits stored onboard.`, endS)
     }
     if (result.resources.delivered > resources.delivered) {
@@ -205,7 +220,7 @@ export function createMissionRun(mission: ApprovedMission, raw?: MissionRecord) 
       elapsedS, complete, verdict, goal, ...modeFor(pending, imaging, radio), pending,
       orbital: model.at(elapsedS), upcoming: next, resources: { ...resources, pendingBits: [...resources.pendingBits] },
       minChargeJ, unmetJ, targetWindows, contactWindows, missedObservations, missedContacts,
-      lastActivity, lastLoadW, events: [...events],
+      lastActivity, lastLoadW, events: [...events], observations: [...observations],
     } as const
   }
 
