@@ -42,7 +42,7 @@ export default function AssemblyWorkspace() {
     }).catch(error => { if (active) setStatus(message(error)) })
     return () => { active = false }
   }, [])
-  if (!data) return <main className="assembly-loading"><h1>Vehicle Assembly</h1><p role="status">{status}</p><a href="?">Agency headquarters</a></main>
+  if (!data) return <main className="assembly-loading"><h1>Vehicle Assembly</h1><p role="status">{status}</p><a href="?mode=headquarters">Agency headquarters</a></main>
   return <Workbench initial={data} />
 }
 
@@ -76,6 +76,7 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
   const mount = mounts.find(item => item.key === mountKey)
   const source = assemblySources[partDefinition(selected?.part ?? partId).source]
   const launchBlocked = !report.fitsEnvelope || !report.fitsMass || !report.fitsCom
+  const lunarRoute = new URLSearchParams(location.search).get('next') === 'moon'
 
   useEffect(() => {
     if (!dirty) return
@@ -150,14 +151,14 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
     <div className="assembly-workspace">
       <a className="skip-link" href="#assembly-tree">Skip to assembly tree</a>
       <header className="assembly-header">
-        <div><a href="?">← Agency headquarters</a><h1>Vehicle Assembly</h1></div>
+        <div><a href="?">← Missions</a><h1>Vehicle Assembly</h1></div>
         <div className="assembly-header-actions">
-          <a href="?mode=planning">Mission Planning</a>
+          <a href={lunarRoute ? '?mode=planning&body=moon' : '?mode=planning'}>Mission Planning</a>
           <span>{stored.save.agency.name} · Revision {assembly.revision}{dirty ? ' · Unsaved' : ''}</span>
           <button className="assembly-primary" disabled={!dirty || busy} onClick={() => void saveDraft()}>{busy ? 'Saving…' : 'Save draft'}</button>
         </div>
       </header>
-      <p className="assembly-announcement" role="status">{notice || 'Earth survey spacecraft · Illustrative hardware and USD estimates'}</p>
+      <p className="assembly-announcement" role="status">{notice || 'Orbital survey spacecraft · Select a subsystem, choose a highlighted mount and save the draft.'}</p>
       {error && <p className="assembly-error" role="alert">{error}</p>}
       <main className="assembly-columns">
         <aside className="assembly-panel assembly-parts" aria-label="Assembly tools">
@@ -203,7 +204,7 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
               <Viewport parts={report.parts} preview={preview} selected={selection} choose={setSelection}
                 markers={mounts.map(point => ({ key: point.key, position: point.position, active: point.key === mountKey }))}
                 chooseMount={setMountKey} com={report.comM} overlay={overlay} showAxes={showAxes}
-                fit={fit} bounds={report.bounds} onLost={() => setUse3d(false)} />
+                fit={fit} bounds={report.bounds} blocked={Boolean(previewError)} launchBlocked={launchBlocked} onLost={() => setUse3d(false)} />
             </Suspense></ViewBoundary> : <p className="assembly-canvas-fallback">Assembly tree mode. Component selection and mounting remain available.</p>}
           </div>
           <div className="assembly-toolbar">
@@ -215,7 +216,7 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
             <button disabled={!history.past.length} onClick={() => undoOrRedo('undo')}>Undo</button>
             <button disabled={!history.future.length} onClick={() => undoOrRedo('redo')}>Redo</button>
           </div>
-          {use3d && <p className="assembly-view-guide">Drag to orbit · scroll or pinch to zoom · right-drag or two fingers to pan. The amber marker is the calculated center of mass.</p>}
+          {use3d && <p className="assembly-view-guide">Drag to orbit · scroll or pinch to zoom · right-drag to pan. Amber marks center of mass or an invalid placement. Procedural hardware and stowed dimensions are illustrative.</p>}
           <section className="assembly-placement" aria-label="Component placement">
             <h2>{reuse ? 'Reattach' : 'Place'} {draftPart.name}</h2>
             <p>{draftPart.description}</p>

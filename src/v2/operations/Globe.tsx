@@ -77,7 +77,7 @@ export default function Globe({ orbit, track, craft, target, station, sun, acces
     <group scale={1.008}>
       <Line points={track.map(three)} color="#5cbdcb" transparent opacity={.65} />
     </group>
-    <Line points={orbit.map(three)} color="#87d8af" lineWidth={1.7} />
+    <Line points={orbit.map(three)} color="#96b5df" lineWidth={1.7} />
     {contact && contactEnd && <Line points={[three(craft), three(contactEnd)]} color="#79adff" lineWidth={2} />}
     {access && <Line points={[three(craft), three(target)]} color="#ffce89" lineWidth={2} />}
     <mesh position={three(target)}><sphereGeometry args={[.023, 12, 8]} /><meshBasicMaterial color={acquired ? '#87d8af' : '#ffce89'} /></mesh>

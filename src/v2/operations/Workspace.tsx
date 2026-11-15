@@ -10,6 +10,7 @@ import { createMissionRun } from './run.ts'
 import type { CommandKind, MissionRecord, MissionTelemetry } from './run.ts'
 import { OrbitView } from './OrbitView.tsx'
 import { LunarReview } from './LunarReview.tsx'
+import { createDemo, demoCheckpointKey, readDemoCheckpoint } from './demo.ts'
 import '../headquarters.css'
 import './operations.css'
 
@@ -51,7 +52,7 @@ function Windows({ forecast, elapsedS, lunar }: { forecast: Forecast; elapsedS: 
   </section>
 }
 
-function ScienceReview({ mission, forecast, data }: { mission: ExecutableMission; forecast: Forecast; data: MissionTelemetry }) {
+function ScienceReview({ mission, forecast, data, demo }: { mission: ExecutableMission; forecast: Forecast; data: MissionTelemetry; demo: boolean }) {
   const { resources, goal } = data
   const sceneBits = mission.spacecraft.payload.sceneBits
   const lunar = mission.schemaVersion === 3
@@ -72,7 +73,12 @@ function ScienceReview({ mission, forecast, data }: { mission: ExecutableMission
   return <section className="hq-panel ops-review" aria-labelledby="review-heading">
     <div className="ops-panel-head"><div><h2 id="review-heading">Science and Program Review</h2><p>{mission.objective.product} · {mission.target.label}</p></div>
       <strong className={data.verdict === 'Success' ? 'hq-good' : 'hq-warn'}>{data.verdict}</strong></div>
-    <p className="ops-result-line">{resources.delivered} of {goal} required complete scenes delivered. Acquisition requires the approved spectral bands, adequate lighting and an estimated sampling distance of {mission.objective.groundSampleLimitM} m/px or finer.</p>
+    <div className="ops-review-counts">
+      <div><span>Target windows</span><strong>{data.targetWindows}</strong></div>
+      <div><span>Scenes acquired</span><strong>{resources.captured}</strong></div>
+      <div><span>Complete scenes delivered</span><strong>{resources.delivered} / {goal}</strong></div>
+    </div>
+    <p className="ops-result-line">{resources.delivered} of {goal} required complete scenes delivered. Acquisition requires the approved spectral bands, adequate lighting and a sampling distance of {mission.objective.groundSampleLimitM} m/px or finer.</p>
     <ul className="ops-reasons">
       {resources.delivered >= goal && <li>Science objective satisfied. All credited scenes arrived in full.</li>}
       {resources.delivered < goal && <li>The science requirement fell short by {goal - resources.delivered} complete scene(s).</li>}
@@ -86,7 +92,7 @@ function ScienceReview({ mission, forecast, data }: { mission: ExecutableMission
       <table><thead><tr><th>Measure</th><th>Planning forecast</th><th>Actual run</th></tr></thead>
         <tbody>{rows.map(([label, predicted, actual]) => <tr key={label}><th scope="row">{label}</th><td>{predicted}</td><td>{actual}</td></tr>)}</tbody></table>
     </div>
-    <h3>Program accounting</h3><p>{money(mission.budget.totalCents)} was committed at approval. Mission runs and replays add no charges or grants. The agency’s approval ledger remains the financial record.</p>
+    <h3>Program accounting</h3><p>{money(mission.budget.totalCents)} was committed in {demo ? 'the isolated demo ledger' : 'the agency ledger'} at approval. Mission runs and replays add no charges or grants.</p>
     <details className="hq-detail"><summary>Scientific sources and model confidence</summary>
       <p>{lunar ? 'Lunar two-body propagation is TESTED. The lunar sphere, Sun direction, and Earth visibility scenario are ILLUSTRATIVE.' : 'Two-body propagation and free-space path loss are TESTED. Integrated mission behavior is ILLUSTRATIVE.'} RF link margin is NOT ASSESSED. Received data use the acknowledged illustrative service rate.</p>
       <p>Flight inputs · {mission.models.orbit} · {mission.analysisProfile.revision} · {mission.catalogRevision}</p>
@@ -95,7 +101,7 @@ function ScienceReview({ mission, forecast, data }: { mission: ExecutableMission
   </section>
 }
 
-function Flight({ mission, opened }: { mission: ExecutableMission; opened: OpenSave }) {
+function Flight({ mission, opened, demo = false }: { mission: ExecutableMission; opened: OpenSave; demo?: boolean }) {
   const store = useRef(opened)
   const saveQueue = useRef(Promise.resolve())
   const saveRequest = useRef(0)
@@ -113,6 +119,13 @@ function Flight({ mission, opened }: { mission: ExecutableMission; opened: OpenS
   const lunar = mission.schemaVersion === 3
 
   const saveProgress = useCallback((record: MissionRecord) => {
+    if (demo) {
+      try {
+        window.sessionStorage.setItem(demoCheckpointKey, JSON.stringify(record))
+        setStatus('Demo checkpoint saved in this tab.')
+      } catch { setStatus('Demo checkpoint stays in memory until this page closes.') }
+      return
+    }
     const request = ++saveRequest.current
     setStatus('Saving flight…')
     saveQueue.current = saveQueue.current.then(async () => {
@@ -130,7 +143,7 @@ function Flight({ mission, opened }: { mission: ExecutableMission; opened: OpenS
         setStatus('Flight checkpoint not saved.')
       }
     })
-  }, [mission.id])
+  }, [demo, mission.id])
 
   useEffect(() => {
     if (!playing) return
@@ -193,16 +206,25 @@ function Flight({ mission, opened }: { mission: ExecutableMission; opened: OpenS
   const { upcoming, orbital, resources } = data
   const battery = percent(resources.chargeJ, mission.spacecraft.power.batteryCapacityJ)
   const storage = percent(resources.occupiedBits, mission.spacecraft.storageCapacityBits)
+  const latestEvent = data.events.findLast(event => event.kind === 'warning' || event.kind === 'science' ||
+    event.text.startsWith('Manual transmission'))
 
   return <>
-    <div className="ops-title"><div><p className="hq-kicker">Mission Control · {lunar ? 'Lunar reconnaissance' : 'Earth observation'}</p><h1>{mission.objective.label}</h1>
+    <div className="ops-title"><div><p className="hq-kicker">{demo ? 'Demo flight' : 'Mission Control'} · {lunar ? 'Lunar reconnaissance' : 'Earth observation'}</p><h1>{mission.objective.label}</h1>
       <p>{mission.target.label} · Approved spacecraft revision {mission.assembly.revision}</p>
       {lunar && <p>Flight begins in Moon-centered orbit after assumed insertion.</p>}</div>
       <div className="ops-clock"><span>{data.complete ? 'Mission complete' : !started ? 'Awaiting start' : playing ? 'Running' : 'Paused'}</span>
         <strong>T+{clock(data.elapsedS)}</strong><small>Elapsed TDB · {mission.orbit.elements.frame}</small></div></div>
     <p className="ops-save" role="status">{status}</p>
     {error && <p className="hq-alert" role="alert">{error} <a href={location.search}>Reload saved flight</a></p>}
-    {data.complete && <ScienceReview mission={mission} forecast={forecast} data={data} />}
+    {demo && !data.complete && <aside className="mission-route-note">
+      <strong>Return {data.goal} complete scenes</strong>
+      <p>{!started ? 'Start the mission and use Go to next target to reach a valid imaging window.' :
+        resources.captured === 0 ? 'Go to next target, then Capture now. You can arm imaging to capture automatically at later eligible windows.' :
+          resources.delivered < data.goal ? 'Arm imaging and downlink, then Run to end & review. Scenes left onboard cannot count toward the objective.' :
+            'The required scenes are on the ground. Run to end to review the mission.'}</p>
+    </aside>}
+    {data.complete && <ScienceReview mission={mission} forecast={forecast} data={data} demo={demo} />}
     {data.complete && mission.schemaVersion === 3 && <LunarReview mission={mission} data={data} save={opened.save} />}
     <div className="ops-grid">
       <OrbitView mission={mission} telemetry={data} />
@@ -229,9 +251,11 @@ function Flight({ mission, opened }: { mission: ExecutableMission; opened: OpenS
         <div className="ops-meter"><label htmlFor="ops-storage">Onboard data</label><output>{sizeMB(resources.occupiedBits)} / {sizeMB(mission.spacecraft.storageCapacityBits)}</output>
           <meter id="ops-storage" min={0} max={100} value={storage} /></div>
         <div className="ops-science-count"><span>Acquired <strong>{resources.captured}</strong></span><span>Delivered <strong>{resources.delivered} / {data.goal}</strong></span></div>
+        <p className="hq-small">{sizeMB(resources.deliveredBits)} received on the ground, including partial transmissions.</p>
         <fieldset disabled={!started || data.complete}>
           <legend>Imaging</legend>
           <p>{upcoming.access.available ? `Target window open · ${upcoming.access.bestGsdM.toFixed(1)} m/px` : accessReasons[upcoming.access.reason]}</p>
+          <p>Capture now requests one exposure in the next step. Armed imaging waits for a qualifying view.</p>
           <div className="ops-actions">
             <button type="button" aria-pressed={data.imaging} onClick={() => send(data.imaging ? 'standby-imaging' : 'arm-imaging')}>{data.imaging ? 'Hold imaging' : 'Arm imaging'}</button>
             <button type="button" onClick={() => send('image-now')}>Capture now</button>
@@ -242,6 +266,7 @@ function Flight({ mission, opened }: { mission: ExecutableMission; opened: OpenS
           <legend>Downlink</legend>
           <p>{lunar ? (upcoming.station.inContact ? 'Assumed Earth direction clear of lunar limb.' : 'Moon occults the assumed Earth direction.') :
             (upcoming.station.inContact ? `Contact above mask · ${upcoming.station.elevationDeg?.toFixed(1)}°` : 'Station outside contact mask.')} RF margin NOT ASSESSED.</p>
+          <p>{resources.occupiedBits ? 'Armed downlink sends queued data when geometry and power permit.' : 'No data queued. Capture a scene before transmitting.'}</p>
           <div className="ops-actions">
             <button type="button" aria-pressed={data.radio} onClick={() => send(data.radio ? 'standby-downlink' : 'arm-downlink')}>{data.radio ? 'Hold downlink' : 'Arm downlink'}</button>
             <button type="button" onClick={() => send('downlink-now')}>Transmit 5 s now</button>
@@ -249,6 +274,7 @@ function Flight({ mission, opened }: { mission: ExecutableMission; opened: OpenS
           </div>
         </fieldset>
         {data.pending.length > 0 && <p className="hq-small">Commands queued for the next 5 s interval.</p>}
+        {latestEvent && <p className={`ops-feedback ${latestEvent.kind === 'warning' ? 'hq-warn' : ''}`} role="status">T+{clock(latestEvent.atS)} · {latestEvent.text}</p>}
         {battery <= 15 && !data.complete && <p className="hq-warn">Battery reserve advisory. Hold imaging or downlink to reduce load.</p>}
         <div className="ops-actions ops-close">
           <button disabled={!started} onClick={() => { setPlaying(false); saveProgress(run.record()) }}>Save checkpoint</button>
@@ -263,7 +289,24 @@ function Flight({ mission, opened }: { mission: ExecutableMission; opened: OpenS
   </>
 }
 
-export default function Workspace() {
+function DemoFlight() {
+  const [{ mission, opened }] = useState(() => {
+    const { mission, save } = createDemo()
+    let checkpoint
+    try { checkpoint = readDemoCheckpoint(mission, window.sessionStorage) } catch { /* Flight is still playable in memory. */ }
+    return { mission, opened: { raw: '', save: { ...save, operations: checkpoint ? [checkpoint] : [] } } }
+  })
+  return <div className="hq ops">
+    <header className="hq-top"><div className="hq-shell hq-top-inner"><a href="?" className="hq-brand">MISSION CONTROL</a><a href="?">Exit demo</a></div></header>
+    <main className="hq-shell hq-main"><Flight mission={mission} opened={opened} demo /></main>
+  </div>
+}
+
+export default function Workspace({ demo }: { demo: boolean }) {
+  return demo ? <DemoFlight /> : <AgencyFlights />
+}
+
+function AgencyFlights() {
   const [opened, setOpened] = useState<OpenSave | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
@@ -282,7 +325,7 @@ export default function Workspace() {
     <a className="skip-link" href="#operations">Skip to Mission Control</a>
     <header className="hq-top"><div className="hq-shell hq-top-inner">
       <a href="?" className="hq-brand">MISSION CONTROL</a>
-      <nav className="hq-actions" aria-label="Workspaces"><a href="?" className="hq-nav-link">Headquarters</a>
+      <nav className="hq-actions" aria-label="Workspaces"><a href="?" className="hq-nav-link">Missions</a><a href="?mode=headquarters" className="hq-nav-link">Headquarters</a>
         <a href="?mode=planning" className="hq-nav-link">Mission Planning</a><a href="?mode=operations" className="hq-nav-link">Approved missions</a></nav>
     </div></header>
     <main id="operations" className="hq-shell hq-main" tabIndex={-1}>

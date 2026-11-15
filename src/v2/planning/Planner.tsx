@@ -170,7 +170,7 @@ export default function Planner() {
     <a className="skip-link" href="#mission-planning">Skip to mission planning</a>
     <header className="hq-top"><div className="hq-shell hq-top-inner">
       <a className="hq-brand" href="?">MISSION CONTROL</a>
-      <nav className="hq-actions" aria-label="Workspaces"><a className="hq-nav-link" href="?">Headquarters</a><a className="hq-nav-link" href="?mode=assembly">Vehicle Assembly</a></nav>
+      <nav className="hq-actions" aria-label="Workspaces"><a className="hq-nav-link" href="?">Missions</a><a className="hq-nav-link" href={lunar ? '?mode=assembly&next=moon' : '?mode=assembly'}>Vehicle Assembly</a><a className="hq-nav-link" href="?mode=headquarters">Headquarters</a></nav>
     </div></header>
     <main className="hq-shell hq-main" id="mission-planning" tabIndex={-1}>
       <div className="hq-heading"><div><p className="hq-kicker">{lunar ? 'Lunar reconnaissance program' : 'Earth observation program'}</p><h1>Mission planning</h1>
@@ -178,7 +178,8 @@ export default function Planner() {
         {save && <div className="plan-agency"><strong>{save.agency.name}</strong><span>Program day {save.agency.day}</span></div>}</div>
       <div className="hq-status" role="status">{busy ? 'Committing mission…' : notice || (!loaded ? 'Opening local agency save…' : '')}</div>
       {error && <div className="hq-alert" role="alert">{error} <a href="?mode=planning">Reload planner</a></div>}
-      {loaded && !save && !error && <p>Create or open an agency in <a href="?">Headquarters</a> to continue.</p>}
+      {loaded && !save && !error && <p>Create or open an agency in <a href="?mode=headquarters">Headquarters</a> to continue.</p>}
+      {save && <nav className="plan-route" aria-label="Planning workflow"><a href="#design-heading">Configure</a><a href="#preview-heading">Check trajectory</a>{assessment && <><a href="#compare-heading">Compare</a><a href="#readiness-heading">Resolve readiness</a><a href="#budget-heading">Approve</a></>}</nav>}
       {save && <div className="plan-console">
         <section className="hq-panel plan-setup" aria-labelledby="design-heading">
           <h2 id="design-heading">Mission design</h2>
@@ -229,20 +230,6 @@ export default function Planner() {
           </fieldset>
           {plan.revisedFrom && <p className="hq-small">Revising {plan.revisedFrom.slice(0, 8)}. Approval creates a new commitment. <button onClick={startNew}>Start a new plan</button></p>}
         </section>
-        {assessment?.forecast && <ForecastPanel forecast={assessment.forecast} lunar={lunar} />}
-        {assessment && <section className="hq-panel forecast-comparison" aria-labelledby="compare-heading">
-          <h2 id="compare-heading">Trade study</h2>
-          <p className="hq-small">Pin a candidate before changing the design or compare against a saved approval. Saved snapshots use the current forecast model for this comparison.</p>
-          <div className="hq-actions">
-            <button disabled={!current} onClick={() => { if (current) setPinned({ ...current, label: 'Pinned candidate' }); setComparisonId('pinned') }}>Pin current plan</button>
-            <label>Baseline <select value={comparisonId} onChange={event => setComparisonId(event.target.value)}>
-              <option value="">Choose a baseline</option>
-              {pinned && <option value="pinned">Pinned candidate</option>}
-              {history.map(mission => <option key={mission.id} value={mission.id}>{mission.objective.label} · {mission.id.slice(0, 8)}</option>)}
-            </select></label>
-          </div>
-          {comparison && current && <Comparison baseline={comparison} current={current} />}
-        </section>}
         <section className="hq-panel plan-analysis" aria-labelledby="preview-heading">
           <h2 id="preview-heading">Trajectory and spacecraft</h2>
           {assessment ? <>
@@ -261,11 +248,25 @@ export default function Planner() {
             </dl>
           </> : <p><a href="?mode=assembly">Build and save a spacecraft in Vehicle Assembly</a> to begin the engineering review.</p>}
         </section>
+        {assessment?.forecast && <ForecastPanel forecast={assessment.forecast} lunar={lunar} />}
+        {assessment && <section className="hq-panel forecast-comparison" aria-labelledby="compare-heading">
+          <h2 id="compare-heading">Trade study</h2>
+          <p className="hq-small">Pin a candidate before changing the design or compare against a saved approval. Saved snapshots use the current forecast model for this comparison.</p>
+          <div className="hq-actions">
+            <button disabled={!current} onClick={() => { if (current) setPinned({ ...current, label: 'Pinned candidate' }); setComparisonId('pinned') }}>Pin current plan</button>
+            <label>Baseline <select value={comparisonId} onChange={event => setComparisonId(event.target.value)}>
+              <option value="">Choose a baseline</option>
+              {pinned && <option value="pinned">Pinned candidate</option>}
+              {history.map(mission => <option key={mission.id} value={mission.id}>{mission.objective.label} · {mission.id.slice(0, 8)}</option>)}
+            </select></label>
+          </div>
+          {comparison && current && <Comparison baseline={comparison} current={current} />}
+        </section>}
         {assessment && <>
           <section className="hq-panel plan-readiness" aria-labelledby="readiness-heading">
             <h2 id="readiness-heading">Readiness review</h2>
             <p>{failures ? `${failures} blocking · ${warnings} warnings` : `Ready for planning approval · ${warnings} warnings`}</p>
-            <ul className="plan-findings">{assessment.findings.map(finding => <li key={finding.id}>
+            <ul className="plan-findings">{[...assessment.findings].sort((a, b) => ({ FAIL: 0, WARNING: 1, PASS: 2 }[a.status] - { FAIL: 0, WARNING: 1, PASS: 2 }[b.status])).map(finding => <li key={finding.id}>
               <span className={`plan-status ${finding.status.toLowerCase()}`}>{finding.status}</span>
               <div><strong>{finding.id}</strong><p>{finding.explanation}</p>
                 {finding.source && <a href={provenance[finding.source].url} target="_blank" rel="noreferrer">{provenance[finding.source].title}</a>}</div>
