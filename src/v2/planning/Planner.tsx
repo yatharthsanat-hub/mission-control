@@ -267,7 +267,8 @@ export default function Planner() {
           <h2 id="history-heading">Approved missions</h2>
           {history.length ? <ul>{history.map(mission => <li key={mission.id}>
             <div><strong>{mission.objective.label} · {mission.id.slice(0, 8)}</strong><p>Day {mission.approval.programDay} · spacecraft revision {mission.assembly.revision} · {usd(mission.budget.totalCents)} committed · {mission.schemaVersion === 1 ? 'Phase 2 approval' : 'Forecast checked'}</p></div>
-            <div className="hq-actions"><button onClick={() => revise(mission)}>Revise {mission.id.slice(0, 8)}</button><button onClick={() => downloadMission(mission)}>Export mission JSON <span className="plan-id">{mission.id.slice(0, 8)}</span></button></div>
+            <div className="hq-actions">{mission.schemaVersion === 2 && <a href={`?mode=operations&mission=${mission.id}`}>Open Mission Control</a>}
+              <button onClick={() => revise(mission)}>Revise {mission.id.slice(0, 8)}</button><button onClick={() => downloadMission(mission)}>Export mission JSON <span className="plan-id">{mission.id.slice(0, 8)}</span></button></div>
           </li>)}</ul> : <p>Approved mission snapshots will appear here.</p>}
         </section>
       </div>}

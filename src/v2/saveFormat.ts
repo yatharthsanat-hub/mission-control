@@ -7,6 +7,8 @@ import type { Assembly } from './assembly/engine.ts'
 import { partDefinition } from './assembly/catalog.ts'
 import { approvalContext, maxApprovedMissions, restoreMission } from './planning/mission.ts'
 import type { ApprovedMission } from './planning/mission.ts'
+import { restoreRecord } from './operations/run.ts'
+import type { MissionRecord } from './operations/run.ts'
 
 export const maxSaveSize = 500_000
 const catalogRevision = 'earth-training-1'
@@ -17,6 +19,7 @@ export interface Save {
   agency: Agency
   assembly?: Assembly
   missions?: readonly ApprovedMission[]
+  operations?: readonly MissionRecord[]
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -57,10 +60,11 @@ function decodeCommand(value: unknown): Command {
 
 export function encodeSave(save: Save) {
   const payload = JSON.stringify({
-    schemaVersion: save.missions?.length ? 4 : save.assembly ? 3 : 2, id: save.id, revision: save.revision, catalogRevision,
+    schemaVersion: save.operations?.length ? 5 : save.missions?.length ? 4 : save.assembly ? 3 : 2, id: save.id, revision: save.revision, catalogRevision,
     sourceRegistryRevision, modelRevision: orbitModel.revision,
     name: save.agency.name, commands: save.agency.commands, assembly: save.assembly,
     missions: save.missions?.length ? save.missions : undefined,
+    operations: save.operations?.length ? save.operations : undefined,
   })
   return JSON.stringify({ payload, checksum: checksum(payload) })
 }
@@ -76,8 +80,9 @@ export function decodeSave(raw: string): Save {
   const input = original.schemaVersion === 1
     ? { ...original, schemaVersion: 2, sourceRegistryRevision, modelRevision: orbitModel.revision }
     : original
-  if (input.schemaVersion !== 2 && input.schemaVersion !== 3 && input.schemaVersion !== 4) throw new Error('Unsupported save schema version.')
-  if (input.schemaVersion !== 4 && Object.hasOwn(input, 'missions')) throw new Error('Approved missions require agency save schema 4.')
+  if (input.schemaVersion !== 2 && input.schemaVersion !== 3 && input.schemaVersion !== 4 && input.schemaVersion !== 5) throw new Error('Unsupported save schema version.')
+  if (input.schemaVersion < 4 && Object.hasOwn(input, 'missions')) throw new Error('Approved missions require agency save schema 4 or later.')
+  if (input.schemaVersion !== 5 && Object.hasOwn(input, 'operations')) throw new Error('Operations records require agency save schema 5.')
   if (input.catalogRevision !== catalogRevision || input.sourceRegistryRevision !== sourceRegistryRevision ||
     input.modelRevision !== orbitModel.revision) throw new Error('Save requires an unavailable catalog, source registry, or model revision.')
   const id = identifier(input.id)
@@ -89,7 +94,7 @@ export function decodeSave(raw: string): Save {
 
   let agency = createAgency(agencyName(input.name))
   const missions = new Map<string, ApprovedMission>()
-  if (input.schemaVersion === 4) {
+  if (input.schemaVersion >= 4) {
     if (!Array.isArray(input.missions) || !input.missions.length || input.missions.length > maxApprovedMissions) {
       throw new Error('Invalid approved mission history.')
     }
@@ -120,6 +125,19 @@ export function decodeSave(raw: string): Save {
     agency = applyCommand(agency, command)
   }
   if (missions.size !== approved.length) throw new Error('An approved mission has no matching commitment.')
+  const operations: MissionRecord[] = []
+  if (input.schemaVersion === 5) {
+    if (!Array.isArray(input.operations) || !input.operations.length || input.operations.length > missions.size) {
+      throw new Error('Invalid operations checkpoint history.')
+    }
+    const recorded = new Set<string>()
+    for (const raw of input.operations) {
+      const mission = missions.get(identifier(object(raw).missionId))
+      if (!mission || mission.schemaVersion !== 2 || recorded.has(mission.id)) throw new Error('Missing, legacy, or duplicate operations mission.')
+      operations.push(restoreRecord(raw, mission))
+      recorded.add(mission.id)
+    }
+  }
   if (input.schemaVersion === 2) return { id, revision, agency }
   const assembly = restoreAssembly(input.assembly)
   const capabilities = unlockedCapabilities(agency)
@@ -127,7 +145,8 @@ export function decodeSave(raw: string): Save {
     const required = partDefinition(part.part).capability
     if (required && !capabilities.includes(required)) throw new Error('Assembly contains a research-locked component.')
   }
-  return { id, revision, agency, assembly, ...(approved.length ? { missions: Object.freeze(approved) } : {}) }
+  return { id, revision, agency, assembly, ...(approved.length ? { missions: Object.freeze(approved) } : {}),
+    ...(operations.length ? { operations: Object.freeze(operations) } : {}) }
 }
 
 export function sameSaveContents(first: string, second: string): boolean {
