@@ -1,0 +1,51 @@
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/fonts/space-grotesk.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Inter;
+  src: url("/fonts/inter.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/jetbrains-mono.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+:root {
+  --bg: #080C14;
+  --surface: #111827;
+  --line: #1F2937;
+  --ink: #F8FAFC;
+  --muted: #94A3B8;
+  --accent: #38BDF8;
+  --telemetry: #00E5FF;
+  --execute: #F97316;
+  --execute-hover: #FB923C;
+
+  --control: #182235;
+  --control-line: #45556C;
+  --selected: #102C40;
+  --accent-hover: #7DD3FC;
+  --amber: #FCD38B;
+  --success: #86EFAC;
+  --error: #FCA5A5;
+  --error-surface: #321F29;
+
+  --heading: "Space Grotesk", system-ui, sans-serif;
+  --body: Inter, system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  --radius: 6px;
+  --control-height: 44px;
+  --panel-gap: 14px;
+}

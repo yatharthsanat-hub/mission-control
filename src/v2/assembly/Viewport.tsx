@@ -3,6 +3,7 @@ import type { ComponentRef } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { BoxGeometry, EdgesGeometry, Matrix4, Quaternion, Vector3 } from 'three'
+import { sceneColor } from '../../design.ts'
 import { launchEnvelope, partDefinition } from './catalog.ts'
 import { Hardware } from './Hardware.tsx'
 import type { Bounds, ResolvedPart } from './engine.ts'
@@ -15,6 +16,7 @@ export interface MountMarker {
 }
 
 const unitBox = new BoxGeometry()
+const background = sceneColor('bg')
 const boxEdges = new EdgesGeometry(unitBox)
 unitBox.dispose()
 
@@ -85,7 +87,7 @@ export default function Viewport({ parts, preview, selected, choose, markers, ch
       onCreated={({ gl }) => {
         gl.domElement.addEventListener('webglcontextlost', onLost, { once: true })
       }}>
-      <color attach="background" args={['#101827']} />
+      <color attach="background" args={[background]} />
       <ambientLight intensity={.8} />
       <directionalLight position={[1, 1.8, 2]} intensity={2.7} />
       <directionalLight position={[-1, .6, -.7]} intensity={1.6} color="#8eb9da" />

@@ -190,7 +190,7 @@ export function Headquarters() {
             <button className="hq-primary" disabled={busy} onClick={() => void act(() => install({ ...candidate, id: crypto.randomUUID(), revision: 0 }, 'replace'))}>
               {restoringArchive ? 'Confirm archive restore' : stored?.raw !== undefined ? 'Archive current and import' : 'Import agency'}
             </button>{' '}
-            <button onClick={() => setCandidate(null)}>Cancel import</button>
+            <button disabled={busy} onClick={() => { setCandidate(null); setRestoringArchive(false) }}>{restoringArchive ? 'Cancel restore' : 'Cancel import'}</button>
           </div>}
         </section>
       </main>
@@ -228,18 +228,24 @@ function AgencyWorkspace({ save, busy, dispatch }: { save: Save; busy: boolean; 
             <ul>{training.budgetLines.map(([label, cents]) => <li key={label}>{label} <strong>{usd(cents)}</strong></li>)}</ul>
             <p>The funding commitment is {usd(trainingCommitmentCents)} with {training.reservePercent}% contingency. Acceptance pays the estimate, releases unused contingency and posts a fictional {usd(training.completionGrantCents)} grant.</p>
           </details>
-          {agency.mission === 'available' && <button className="hq-primary" disabled={busy || funding.available < trainingCommitmentCents} onClick={() => dispatch({ kind: 'fund-training' })}>Commit {usd(trainingCommitmentCents)}</button>}
+          {agency.mission === 'available' && <>
+            <button className="hq-primary" disabled={busy || funding.available < trainingCommitmentCents}
+              aria-describedby={funding.available < trainingCommitmentCents ? 'training-funds-help' : undefined}
+              onClick={() => dispatch({ kind: 'fund-training' })}>Commit {usd(trainingCommitmentCents)}</button>
+            {funding.available < trainingCommitmentCents && <p id="training-funds-help" className="hq-small">Available cash is below the required funding commitment.</p>}
+          </>}
           <div className="hq-review">
             <h3>Concept acceptance</h3>
             <p className="hq-small">Review the payload bands and orbital period before funding or submission.</p>
             <div className="hq-fields">
-              <label>Payload<select value={forecast.payload} disabled={agency.mission === 'accepted'} onChange={event => setPayload(event.target.value === 'visible' ? 'visible' : 'multispectral')}>
+              <label>Payload<select value={forecast.payload} disabled={agency.mission === 'accepted'} aria-describedby={agency.mission === 'accepted' ? 'training-accepted' : undefined} onChange={event => setPayload(event.target.value === 'visible' ? 'visible' : 'multispectral')}>
                 {Object.entries(payloads).map(([id, part]) => <option key={id} value={id}>{part.label}</option>)}
               </select></label>
-              <label>Circular orbit<select value={forecast.axisM} disabled={agency.mission === 'accepted'} onChange={event => setAxis(event.target.value === '7000000' ? 7_000_000 : 7_500_000)}>
+              <label>Circular orbit<select value={forecast.axisM} disabled={agency.mission === 'accepted'} aria-describedby={agency.mission === 'accepted' ? 'training-accepted' : undefined} onChange={event => setAxis(event.target.value === '7000000' ? 7_000_000 : 7_500_000)}>
                 <option value={7_000_000}>629 km altitude</option><option value={7_500_000}>1,129 km altitude</option>
               </select></label>
             </div>
+            {agency.mission === 'accepted' && <p id="training-accepted" className="hq-small">The accepted training configuration is locked.</p>}
             <ul className="hq-checks">
               <li><span>Cover Landsat reference bands</span><strong className={forecast.missingBands.length ? 'hq-warn' : 'hq-good'}>{forecast.missingBands.length ? `Missing ${forecast.missingBands.join(', ')}` : 'Coverage met'}</strong></li>
               <li><span>Period ≤ {training.maximumPeriodS.toLocaleString('en-US')} s</span><strong className={forecast.meetsPeriod ? 'hq-good' : 'hq-warn'}>{forecast.periodS.toFixed(2)} s · {forecast.meetsPeriod ? 'Met' : 'Missed'}</strong></li>
@@ -261,8 +267,11 @@ function AgencyWorkspace({ save, busy, dispatch }: { save: Save; busy: boolean; 
           <p>Unlock eligibility for a fine-pointing attitude-control module in the agency’s capability register.</p>
           <dl className="hq-key-values"><div><dt>Projected cost</dt><dd>{usd(research.costCents)}</dd></div><div><dt>Duration</dt><dd>{research.durationDays} program days</dd></div><div><dt>Prerequisite</dt><dd>{research.prerequisite}</dd></div></dl>
           {researchState.status === 'available' && <>
-            <button className="hq-primary" disabled={busy || agency.mission !== 'accepted' || funding.available < research.costCents} onClick={() => dispatch({ kind: 'start-research' })}>Fund research</button>
-            {agency.mission !== 'accepted' && <p className="hq-small">Available after the training review is accepted.</p>}
+            <button className="hq-primary" disabled={busy || agency.mission !== 'accepted' || funding.available < research.costCents}
+              aria-describedby={agency.mission !== 'accepted' || funding.available < research.costCents ? 'research-help' : undefined}
+              onClick={() => dispatch({ kind: 'start-research' })}>Fund research</button>
+            {agency.mission !== 'accepted' ? <p id="research-help" className="hq-small">Available after the training review is accepted.</p> :
+              funding.available < research.costCents && <p id="research-help" className="hq-small">Available cash is below the projected research cost.</p>}
           </>}
           {researchState.status === 'scheduled' && <p className="hq-warn">Committed · completes on day {researchState.readyDay}</p>}
           {unlockedCapabilities(agency).includes(research.capabilityId) && <p className="hq-good">Unlocked · {research.capability}</p>}

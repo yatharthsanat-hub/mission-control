@@ -14,7 +14,7 @@
 .planner legend { padding-inline: 6px; }
 .planner fieldset p { margin-top: 8px; }
 .plan-preview { margin: 12px 0; }
-.plan-preview svg { display: block; width: 100%; max-height: 255px; background: #0b1520; }
+.plan-preview svg { display: block; width: 100%; max-height: 255px; background: var(--bg); }
 .plan-preview figcaption { margin-top: 6px; }
 .plan-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; margin-top: 8px; }
 .plan-metrics div { border-top: 1px solid var(--hq-border); padding-block: 7px; }
@@ -23,9 +23,9 @@
 .plan-findings li, .plan-history li { display: flex; align-items: flex-start; gap: 10px; border-top: 1px solid var(--hq-border); padding-block: 9px; }
 .plan-findings li p, .plan-findings li a, .plan-history li p { font-size: .85rem; }
 .plan-status { flex: 0 0 76px; font: 700 .77rem/1.65 var(--mono); }
-.plan-status.pass { color: var(--hq-accent); }
+.plan-status.pass { color: var(--success); }
 .plan-status.warning { color: var(--hq-warn); }
-.plan-status.fail { color: #ffb5b2; }
+.plan-status.fail { color: var(--error); }
 .plan-history { grid-column: 1 / -1; }
 .plan-history li { justify-content: space-between; flex-wrap: wrap; }
 .plan-history .hq-actions { margin: 0; }
@@ -45,14 +45,14 @@
 .forecast-timeline { margin: 18px 0 10px; }
 .forecast-lane, .forecast-ticks { display: grid; grid-template-columns: minmax(80px, 115px) minmax(0, 1fr); gap: 8px; margin-block: 6px; align-items: center; }
 .forecast-lane > span, .forecast-ticks { font: .74rem/1.2 var(--mono); color: var(--hq-muted); }
-.forecast-lane svg { width: 100%; height: 14px; background: #0b1520; display: block; }
-.forecast-lane line { stroke: #324758; stroke-width: 1px; vector-effect: non-scaling-stroke; }
-.forecast-lane .target { fill: #74e7c2; }
-.forecast-lane .contact { fill: #7ea9e3; }
-.forecast-lane .sunlight { fill: #d2ac61; }
-.forecast-lane .eclipse { fill: #657486; }
+.forecast-lane svg { width: 100%; height: 14px; background: var(--bg); display: block; }
+.forecast-lane line { stroke: var(--line); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.forecast-lane .target { fill: var(--telemetry); }
+.forecast-lane .contact { fill: var(--accent); }
+.forecast-lane .sunlight { fill: var(--amber); }
+.forecast-lane .eclipse { fill: var(--muted); }
 .forecast-lane .forecast-charge { height: 42px; }
-.forecast-charge polyline { fill: none; stroke: #74e7c2; stroke-width: 1.3px; vector-effect: non-scaling-stroke; }
+.forecast-charge polyline { fill: none; stroke: var(--telemetry); stroke-width: 1.3px; vector-effect: non-scaling-stroke; }
 .forecast-ticks div { display: flex; justify-content: space-between; }
 .forecast-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-top: 8px; }
 .forecast-summary section { border-top: 1px solid var(--hq-border); padding-top: 8px; }

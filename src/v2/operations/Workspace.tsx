@@ -76,7 +76,7 @@ function ScienceReview({ mission, forecast, data, demo }: { mission: ExecutableM
   ] as const
   return <section className="hq-panel ops-review" aria-labelledby="review-heading">
     <div className="ops-panel-head"><div><h2 id="review-heading" tabIndex={-1}>Science and Program Review</h2><p>{mission.objective.product} · {mission.target.label}</p></div>
-      <strong className={data.verdict === 'Success' ? 'hq-good' : 'hq-warn'}>{data.verdict}</strong></div>
+      <strong className={data.verdict === 'Success' ? 'hq-good' : data.verdict === 'Failure' ? 'ops-failure' : 'hq-warn'}>{data.verdict}</strong></div>
     <div className="ops-review-counts">
       <div><span>Target windows</span><strong>{data.targetWindows}</strong></div>
       <div><span>Scenes acquired</span><strong>{resources.captured}</strong></div>
@@ -239,7 +239,7 @@ function Flight({ mission, opened, demo = false }: { mission: ExecutableMission;
   const finish = finishControl(started, data.complete, demo, resources.delivered)
   const finishPanel = <div className="ops-finish">
     {data.complete ? <a href="#review-heading">Open science review</a> :
-      <button className={demo && finish.enabled ? 'hq-primary' : undefined} disabled={!finish.enabled} aria-describedby="finish-help"
+      <button className="ops-execute" disabled={!finish.enabled} aria-describedby="finish-help"
         onClick={() => {
           if (!finish.enabled) return
           advanceTo(durationS)
@@ -279,15 +279,18 @@ function Flight({ mission, opened, demo = false }: { mission: ExecutableMission;
       <section className="hq-panel ops-console" aria-labelledby="console-heading">
         <h2 id="console-heading">Flight console</h2>
         {!demo && <><div className="ops-transport">
-          {!started ? <button className="hq-primary" onClick={start}>Start mission</button> :
-            <button className="hq-primary" disabled={data.complete} onClick={() => {
+          {!started ? <button className="ops-execute" onClick={start}>Start mission</button> :
+            <button className={playing ? 'ops-armed' : 'ops-execute'} disabled={data.complete} aria-describedby="console-help" onClick={() => {
               if (playing) saveProgress(run.record())
               setPlaying(!playing)
             }}>{playing ? 'Pause' : 'Play'}</button>}
-          <label>Speed <select value={speed} onChange={event => setSpeed(Number(event.target.value))}>
+          <label>Speed <select value={speed} disabled={data.complete} aria-describedby="console-help" onChange={event => setSpeed(Number(event.target.value))}>
             {[1, 120, 600, 3600].map(rate => <option key={rate} value={rate}>{rate}×</option>)}</select></label>
-          <button disabled={!started || data.complete} onClick={() => advanceTo(data.elapsedS + stepS)}>Step 5 s</button>
-        </div><p className="hq-small">Pause freezes time. Step advances one five-second interval. Go to next target or contact simulates the intervening time with your current settings.</p></>}
+          <button disabled={!started || data.complete} aria-describedby="console-help" onClick={() => advanceTo(data.elapsedS + stepS)}>Step 5 s</button>
+        </div><p id="console-help" className="hq-small control-help">{data.complete ?
+          'This flight is complete. Reset flight to issue new commands or open the science review.' : !started ?
+            'Start the mission to enable playback and flight commands.' :
+            'Pause freezes time. Step advances five seconds. Jumping to the next opportunity uses your current command settings.'}</p></>}
         <details className="hq-detail"><summary>Orbit and electrical telemetry</summary><dl className="ops-telemetry">
           <div><dt>Altitude</dt><dd>{(orbital.altitudeM / 1000).toFixed(1)} km</dd></div>
           <div><dt>Inertial speed</dt><dd>{(Math.hypot(...orbital.velocityMps) / 1000).toFixed(3)} km/s</dd></div>
@@ -300,33 +303,35 @@ function Flight({ mission, opened, demo = false }: { mission: ExecutableMission;
           <meter id="ops-storage" min={0} max={100} value={storage} /></div>
         <div className="ops-science-count"><span>Acquired <strong>{resources.captured}</strong></span><span>Delivered <strong>{resources.delivered} / {data.goal}</strong></span></div>
         <p className="hq-small">{sizeMB(resources.deliveredBits)} received on the ground, including partial transmissions.</p>
-        {!demo && <><fieldset disabled={!started || data.complete}>
-          <legend>Imaging</legend>
+        {!demo && <><fieldset disabled={!started || data.complete} aria-describedby="console-help">
+          <legend>Imaging <span className={data.imaging && !data.complete ? 'ops-mode active' : 'ops-mode'}>{data.complete ? 'Flight complete' : data.imaging ? 'Armed' : 'Standby'}</span></legend>
           <p>{upcoming.access.available ? `Target window open · ${upcoming.access.bestGsdM.toFixed(1)} m/px` : accessReasons[upcoming.access.reason]}</p>
           <p>Capture now requests one exposure in the next step. Armed imaging waits for a qualifying view.</p>
           <div className="ops-actions">
-            <button type="button" aria-pressed={data.imaging} onClick={() => send(data.imaging ? 'standby-imaging' : 'arm-imaging')}>{data.imaging ? 'Hold imaging' : 'Arm imaging'}</button>
-            <button type="button" onClick={() => send('image-now')}>Capture now</button>
-            <button type="button" disabled={!nextTarget} onClick={() => nextTarget && advanceTo(nextTarget.startS)}>Go to next target</button>
+            <button type="button" className={data.imaging ? 'ops-armed' : 'ops-execute'} aria-pressed={data.imaging} onClick={() => send(data.imaging ? 'standby-imaging' : 'arm-imaging')}>{data.imaging ? 'Hold imaging' : 'Arm imaging'}</button>
+            <button type="button" className="ops-execute" onClick={() => send('image-now')}>Capture now</button>
+            <button type="button" disabled={!nextTarget} aria-describedby={!nextTarget ? 'target-jump-help' : undefined} onClick={() => nextTarget && advanceTo(nextTarget.startS)}>Go to next target</button>
           </div>
+          {started && !data.complete && !nextTarget && <p id="target-jump-help" className="control-help">No later target window is forecast.{upcoming.access.available && ' The current window is open.'}</p>}
         </fieldset>
-        <fieldset disabled={!started || data.complete}>
-          <legend>Downlink</legend>
+        <fieldset disabled={!started || data.complete} aria-describedby="console-help">
+          <legend>Downlink <span className={data.radio && !data.complete ? 'ops-mode active' : 'ops-mode'}>{data.complete ? 'Flight complete' : data.radio ? 'Armed' : 'Standby'}</span></legend>
           <p>{lunar ? (upcoming.station.inContact ? 'Assumed Earth direction clear of lunar limb.' : 'Moon occults the assumed Earth direction.') :
             (upcoming.station.inContact ? `Contact above mask · ${upcoming.station.elevationDeg?.toFixed(1)}°` : 'Station outside contact mask.')} RF margin NOT ASSESSED.</p>
           <p>{resources.occupiedBits ? 'Armed downlink sends queued data when geometry and power permit.' : 'No data queued. Capture a scene before transmitting.'}</p>
           <div className="ops-actions">
-            <button type="button" aria-pressed={data.radio} onClick={() => send(data.radio ? 'standby-downlink' : 'arm-downlink')}>{data.radio ? 'Hold downlink' : 'Arm downlink'}</button>
-            <button type="button" onClick={() => send('downlink-now')}>Transmit 5 s now</button>
-            <button type="button" disabled={!nextContact} onClick={() => nextContact && advanceTo(nextContact.startS)}>Go to next contact</button>
+            <button type="button" className={data.radio ? 'ops-armed' : 'ops-execute'} aria-pressed={data.radio} onClick={() => send(data.radio ? 'standby-downlink' : 'arm-downlink')}>{data.radio ? 'Hold downlink' : 'Arm downlink'}</button>
+            <button type="button" className="ops-execute" onClick={() => send('downlink-now')}>Transmit 5 s now</button>
+            <button type="button" disabled={!nextContact} aria-describedby={!nextContact ? 'contact-jump-help' : undefined} onClick={() => nextContact && advanceTo(nextContact.startS)}>Go to next contact</button>
           </div>
+          {started && !data.complete && !nextContact && <p id="contact-jump-help" className="control-help">No later ground contact is forecast.{upcoming.station.inContact && ' The current contact is open.'}</p>}
         </fieldset></>}
         {data.pending.length > 0 && <p className="hq-small">Commands queued for the next 5 s interval.</p>}
         {latestEvent && <p className={`ops-feedback ${latestEvent.kind === 'warning' ? 'hq-warn' : ''}`} role="status">T+{clock(latestEvent.atS)} · {latestEvent.text}</p>}
         {battery <= 15 && !data.complete && <p className="hq-warn">Battery reserve advisory. Hold imaging or downlink to reduce load.</p>}
         {!demo && <><div className="ops-actions ops-close">
-          <button disabled={!started} onClick={() => { setPlaying(false); saveProgress(run.record()) }}>Save checkpoint</button>
-          <button disabled={!started} onClick={reset}>Reset flight</button>
+          <button disabled={!started} aria-describedby={!started ? 'console-help' : undefined} onClick={() => { setPlaying(false); saveProgress(run.record()) }}>Save checkpoint</button>
+          <button disabled={!started} aria-describedby={!started ? 'console-help' : undefined} onClick={reset}>Reset flight</button>
         </div>
         {finishPanel}</>}
       </section>

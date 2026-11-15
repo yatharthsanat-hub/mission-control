@@ -1,21 +1,18 @@
+@import url("./design.css");
+
 :root {
-  font-family: Inter, "Segoe UI", sans-serif;
-  color: #edf3f5;
-  background: #08111a;
+  font-family: var(--body);
+  color: var(--ink);
+  background: var(--bg);
   color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --bg: #08111a;
-  --panel: #101c28;
-  --panel-active: #11282b;
-  --line: #283947;
-  --muted: #a6b7c3;
-  --mint: #81f4c4;
-  --cyan: #8ad9f0;
-  --amber: #ffd08f;
-  --red: #ffaca7;
-  --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  --panel: var(--surface);
+  --panel-active: var(--selected);
+  --cyan: var(--telemetry);
+  --red: var(--error);
 }
 
 * { box-sizing: border-box; }
@@ -23,11 +20,12 @@ body { margin: 0; min-width: 300px; }
 button, select, input { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; }
-a { color: inherit; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+a { color: inherit; text-underline-offset: .2em; }
 p, h1, h2, figure, dl, dd { margin: 0; }
-h1, h2 { line-height: 1.08; }
+h1, h2, h3, h4 { font-family: var(--heading); line-height: 1.14; }
 p { line-height: 1.55; }
 #root { min-height: 100vh; display: flex; flex-direction: column; }
-:focus-visible { outline: 2px solid var(--mint); outline-offset: 4px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 main:focus { outline: none; }
-::selection { background: var(--mint); color: var(--bg); }
+::selection { background: var(--accent); color: var(--bg); }

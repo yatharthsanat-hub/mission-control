@@ -161,7 +161,8 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
         <div className="assembly-header-actions">
           <a href={plannerHref(route === 'moon' || route === 'wildfire' ? route : 'earth')}>Mission Planning</a>
           <span>{stored.save.agency.name} · Revision {assembly.revision}{dirty ? ' · Unsaved' : ''}</span>
-          <button className="assembly-primary" disabled={!dirty || busy} onClick={() => void saveDraft()}>{busy ? 'Saving…' : 'Save draft'}</button>
+          <button className="assembly-primary" disabled={!dirty || busy} aria-describedby="assembly-save-help" onClick={() => void saveDraft()}>{busy ? 'Saving…' : 'Save draft'}</button>
+          <span id="assembly-save-help">{busy ? 'Writing local save.' : dirty ? 'Save changes before planning.' : 'No unsaved changes.'}</span>
         </div>
       </header>
       <p className="assembly-announcement" role="status">{notice || 'Orbital survey spacecraft · Select a subsystem, choose a highlighted mount and save the draft.'}</p>
@@ -219,8 +220,12 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
               <label><input type="checkbox" checked={overlay} onChange={event => setOverlay(event.target.checked)} /> Launch envelope</label>
               <label><input type="checkbox" checked={showAxes} onChange={event => setShowAxes(event.target.checked)} /> Axes</label>
             </>}
-            <button disabled={!history.past.length} onClick={() => undoOrRedo('undo')}>Undo</button>
-            <button disabled={!history.future.length} onClick={() => undoOrRedo('redo')}>Redo</button>
+            <button disabled={!history.past.length} aria-describedby={!history.past.length ? 'undo-help' : undefined} onClick={() => undoOrRedo('undo')}>Undo</button>
+            <button disabled={!history.future.length} aria-describedby={!history.future.length ? 'redo-help' : undefined} onClick={() => undoOrRedo('redo')}>Redo</button>
+            {(!history.past.length || !history.future.length) && <p className="assembly-eyeline">
+              {!history.past.length && <span id="undo-help">No change to undo. </span>}
+              {!history.future.length && <span id="redo-help">No change to redo.</span>}
+            </p>}
           </div>
           <p className="assembly-view-guide">Launch view uses stowed dimensions. In flight, solar generation uses the mounted panel’s modeled output in sunlight. Deployment geometry and animation are outside the model.</p>
           {use3d && <p className="assembly-view-guide">Select a part to inspect it. Drag to orbit and scroll or pinch to zoom. Amber marks center of mass or an invalid placement.</p>}
@@ -241,9 +246,10 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
                   if (value !== undefined) setTwist(value)
                 }}>{twists.map(angle => <option key={angle} value={angle}>{angle}°</option>)}</select></label>
               </div>
-              {!mounts.length && <p className="assembly-warning">No free compatible node. Select another part or detach the occupant.</p>}
-              {previewError && <p className="assembly-error" role="status">{previewError}</p>}
-              <button className="assembly-primary" disabled={!preview} onClick={() => {
+              {!preview && <p id="placement-help" className={previewError ? 'assembly-error' : 'assembly-warning'} role={previewError ? 'status' : undefined}>
+                {previewError || (!mounts.length ? 'No free compatible node. Select another part or detach the occupant.' : 'Choose a compatible attachment node to preview and attach.')}
+              </p>}
+              <button className="assembly-primary" disabled={!preview} aria-describedby={!preview ? 'placement-help' : undefined} onClick={() => {
                 const intent = placement(reuse ?? crypto.randomUUID())
                 if (intent) edit(intent)
               }}>Attach component</button>

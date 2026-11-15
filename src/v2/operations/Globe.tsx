@@ -2,6 +2,7 @@ import { Canvas, useLoader } from '@react-three/fiber'
 import { Line, OrbitControls } from '@react-three/drei'
 import { Suspense, useEffect, useMemo } from 'react'
 import { CanvasTexture, SRGBColorSpace, TextureLoader } from 'three'
+import { sceneColor } from '../../design.ts'
 import { fixedToScene as three } from './geography.ts'
 import { siteUnit } from '../planning/geometry.ts'
 import type { Vector } from '../planning/geometry.ts'
@@ -23,6 +24,10 @@ const grid = [
   ...[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map(longitudeDeg =>
     Array.from({ length: 37 }, (_, i) => siteUnit({ latitudeDeg: -90 + i * 5, longitudeDeg }))),
 ]
+const scene = {
+  background: sceneColor('bg'), trajectory: sceneColor('telemetry'), station: sceneColor('accent'),
+  target: sceneColor('amber'), acquired: sceneColor('success'), craft: sceneColor('ink'),
+}
 
 function makeLunarTexture() {
   const canvas = document.createElement('canvas')
@@ -76,7 +81,7 @@ export default function Globe({ orbit, track, craft, target, station, sun, acces
   return <Canvas frameloop="demand" camera={{ position: cameraPosition, near: .02, far: 25, fov: 40 }}
     dpr={[1, 1.5]} fallback={<p>WebGL is unavailable. Select the 2D ground track.</p>}
     onCreated={({ gl }) => gl.domElement.addEventListener('webglcontextlost', onLost, { once: true })}>
-    <color attach="background" args={['#090f1a']} />
+    <color attach="background" args={[scene.background]} />
     <ambientLight intensity={.65} />
     <directionalLight position={three(sun)} intensity={2} />
     <OrbitControls minDistance={1.25} maxDistance={7} enableDamping={false} makeDefault />
@@ -89,13 +94,13 @@ export default function Globe({ orbit, track, craft, target, station, sun, acces
       {grid.map((line, index) => <Line key={index} points={line.map(three)} color="#507590" transparent opacity={.45} />)}
     </group>}
     {track.length > 1 && <group scale={1.008}>
-      <Line points={track.map(three)} color="#5cbdcb" transparent opacity={.65} />
+      <Line points={track.map(three)} color={scene.trajectory} transparent opacity={.58} />
     </group>}
-    <Line points={orbit.map(three)} color="#96b5df" lineWidth={1.7} />
-    {contact && contactEnd && <Line points={[three(craft), three(contactEnd)]} color="#79adff" lineWidth={2} />}
-    {access && <Line points={[three(craft), three(target)]} color="#ffce89" lineWidth={2} />}
-    <mesh position={three(target)}><sphereGeometry args={[.023, 12, 8]} /><meshBasicMaterial color={acquired ? '#87d8af' : '#ffce89'} /></mesh>
-    {station && <mesh position={three(station)}><sphereGeometry args={[.021, 12, 8]} /><meshBasicMaterial color="#79adff" /></mesh>}
-    <mesh position={three(craft)}><octahedronGeometry args={[.035]} /><meshBasicMaterial color="#eafdf4" /></mesh>
+    <Line points={orbit.map(three)} color={scene.trajectory} lineWidth={1.7} />
+    {contact && contactEnd && <Line points={[three(craft), three(contactEnd)]} color={scene.station} lineWidth={2} />}
+    {access && <Line points={[three(craft), three(target)]} color={scene.target} lineWidth={2} />}
+    <mesh position={three(target)}><sphereGeometry args={[.023, 12, 8]} /><meshBasicMaterial color={acquired ? scene.acquired : scene.target} /></mesh>
+    {station && <mesh position={three(station)}><sphereGeometry args={[.021, 12, 8]} /><meshBasicMaterial color={scene.station} /></mesh>}
+    <mesh position={three(craft)}><octahedronGeometry args={[.035]} /><meshBasicMaterial color={scene.craft} /></mesh>
   </Canvas>
 }

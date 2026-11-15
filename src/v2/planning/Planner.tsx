@@ -36,11 +36,11 @@ function Preview({ orbit, target, inputs, durationS }: { orbit: ReturnType<typeo
   })
   return <figure className="plan-preview">
     <svg viewBox="0 0 360 180" role="img" aria-label="Mission ground track over a longitude and latitude grid with the target center marked">
-      <rect width="360" height="180" fill="#0b1520" />
-      {[30, 60, 90, 120, 150].map(y => <path key={y} d={`M0,${y} H360`} stroke="#34505f" strokeWidth=".45" />)}
-      {[30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map(x => <path key={x} d={`M${x},0 V180`} stroke="#34505f" strokeWidth=".45" />)}
-      {lines.map((points, index) => <polyline key={index} points={points.join(' ')} fill="none" stroke="#74e7c2" strokeWidth="1.1" />)}
-      <circle cx={target.longitudeDeg + 180} cy={90 - target.latitudeDeg} r="2.7" fill="#ffd08a" />
+      <rect width="360" height="180" fill="var(--bg)" />
+      {[30, 60, 90, 120, 150].map(y => <path key={y} d={`M0,${y} H360`} stroke="var(--control-line)" strokeWidth=".45" />)}
+      {[30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map(x => <path key={x} d={`M${x},0 V180`} stroke="var(--control-line)" strokeWidth=".45" />)}
+      {lines.map((points, index) => <polyline key={index} points={points.join(' ')} fill="none" stroke="var(--telemetry)" strokeWidth="1.1" />)}
+      <circle cx={target.longitudeDeg + 180} cy={90 - target.latitudeDeg} r="2.7" fill="var(--amber)" />
     </svg>
     <figcaption>{orbit ? `${durationS / 3600}-hour subpoint track sampled every minute. Amber marks the target center. See the forecast for actual viewing constraints.` : 'Ground track unavailable until the orbit inputs are valid.'}</figcaption>
   </figure>
@@ -288,13 +288,14 @@ export default function Planner() {
           <h2 id="compare-heading">Trade study</h2>
           <p className="hq-small">Pin a candidate before changing the design or compare against a saved approval. Saved snapshots use the current forecast model for this comparison.</p>
           <div className="hq-actions">
-            <button disabled={!current} onClick={() => { if (current) setPinned({ ...current, label: 'Pinned candidate' }); setComparisonId('pinned') }}>Pin current plan</button>
+            <button disabled={!current} aria-describedby={!current ? 'pin-help' : undefined} onClick={() => { if (current) setPinned({ ...current, label: 'Pinned candidate' }); setComparisonId('pinned') }}>Pin current plan</button>
             <label>Baseline <select value={comparisonId} onChange={event => setComparisonId(event.target.value)}>
               <option value="">Choose a baseline</option>
               {pinned && <option value="pinned">Pinned candidate</option>}
               {history.map(mission => <option key={mission.id} value={mission.id}>{mission.objective.label} · {mission.id.slice(0, 8)}</option>)}
             </select></label>
           </div>
+          {!current && <p id="pin-help" className="hq-small">Enter valid orbit parameters to forecast and pin this plan.</p>}
           {comparison && current && <Comparison baseline={comparison} current={current} />}
         </section>}
         {assessment && <>
@@ -309,7 +310,7 @@ export default function Planner() {
           </section>
           <section className="hq-panel plan-budget" aria-labelledby="budget-heading">
             <h2 id="budget-heading">Funding review</h2>
-            <p className="hq-small">Illustrative USD estimates. Approval commits funds. Cash is paid during a later phase.</p>
+            <p className="hq-small">Illustrative USD estimates. Approval reserves funds once. Flight and replay add no charges.</p>
             <dl className="hq-key-values">
               <div><dt>Hardware procurement</dt><dd>{usd(assessment.budget.hardwareCents)}</dd></div>
               <div><dt>Launch service</dt><dd>{usd(assessment.budget.launchCents)}</dd></div>
@@ -322,8 +323,8 @@ export default function Planner() {
               <span>I acknowledge that RF link margin is unassessed and delivery uses an illustrative service rate.</span>
             </label>}
             {justApproved ? <button onClick={startNew}>Start a new plan</button> :
-              <button className="hq-primary" disabled={busy || failures > 0 || !rfAcknowledged || history.length >= maxApprovedMissions} onClick={() => void approve()}>Approve and commit funds</button>}
-            <p className="hq-small">{justApproved ? 'Review or export the approved snapshot below.' : history.length >= maxApprovedMissions ? 'The local approved-plan history is full.' : failures ? 'Resolve blocking checks to approve.' : !rfAcknowledged ? 'Acknowledge the RF assumption to enable training approval.' : 'Approval freezes the inputs, assumptions, and unresolved warnings for handoff.'}</p>
+              <button className="hq-primary" disabled={busy || failures > 0 || !rfAcknowledged || history.length >= maxApprovedMissions} aria-describedby="approval-help" onClick={() => void approve()}>Approve and commit funds</button>}
+            <p id="approval-help" className="hq-small">{busy ? 'Saving approval and recording the funding commitment.' : justApproved ? 'Review or export the approved snapshot below.' : history.length >= maxApprovedMissions ? 'The local approved-plan history is full.' : failures ? 'Resolve blocking checks to approve.' : !rfAcknowledged ? 'Acknowledge the RF assumption to enable training approval.' : 'Approval freezes the inputs, assumptions, and unresolved warnings for handoff.'}</p>
             <details className="hq-detail"><summary>Scientific inputs and limits</summary>
               <p>{lunar ? 'JPL lunar GM and NASA mean radius and rotation are sourced. Candidate tiles, fixed Sun direction, Earth service and hardware are illustrative.' : 'JPL gravity and sidereal rotation and NASA Landsat 9 band intervals are sourced. Vehicle, cost, target centers, station, and lighting are illustrative.'} The orbit kernel is TESTED.</p>
               <ul>{Object.values(provenance).map(source => <li key={source.locator + source.title}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a> · {source.locator}</li>)}</ul>

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { SphereGeometry } from 'three'
 import { missionEntry } from '../src/v2/missionEntry.ts'
@@ -182,4 +183,24 @@ test('wildfire requires a visible-red delivery before the deadline and replays u
   const poorOrbit = { ...wildfirePlan, orbit: { ...wildfirePlan.orbit, nodeDeg: 244 } }
   assert.ok(forecastReview(review(poorOrbit, save.assembly, context.availableCents, context.capabilities))
     .findings.some(item => item.id === 'Forecast target access' && item.status === 'FAIL'))
+})
+
+test('release theme uses the approved palette and ships all three licensed fonts locally', () => {
+  const css = readFileSync(new URL('../src/design.css', import.meta.url), 'utf8')
+  const palette = Object.fromEntries([...css.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})\s*;/gi)]
+    .map(([, key, value]) => [key, value.toUpperCase()]))
+  const required = {
+    bg: '#080C14', surface: '#111827', line: '#1F2937', ink: '#F8FAFC', muted: '#94A3B8',
+    accent: '#38BDF8', telemetry: '#00E5FF', execute: '#F97316',
+  }
+  for (const [name, color] of Object.entries(required)) assert.equal(palette[name], color)
+  assert.notEqual(palette['execute-hover'], palette.execute)
+  const files = [...css.matchAll(/src:\s*url\("\/fonts\/([\w-]+)\.woff2"\)/g)].map(([, name]) => name)
+  assert.deepEqual(files.sort(), ['inter', 'jetbrains-mono', 'space-grotesk'])
+  for (const name of files) {
+    const font = readFileSync(new URL(`../public/fonts/${name}.woff2`, import.meta.url))
+    const license = readFileSync(new URL(`../public/fonts/${name}-OFL.txt`, import.meta.url), 'utf8')
+    assert.equal(font.subarray(0, 4).toString('ascii'), 'wOF2')
+    assert.match(license, /SIL OPEN FONT LICENSE Version 1\.1/i)
+  }
 })
