@@ -6,6 +6,9 @@ import type { Vector } from '../planning/geometry.ts'
 import type { ExecutableMission } from '../planning/mission.ts'
 import { environmentModel } from '../planning/environments.ts'
 import type { MissionTelemetry } from './run.ts'
+import type { Interval } from '../planning/forecast.ts'
+import { nextOpportunity } from './tutorial.ts'
+import { TargetChart } from './TargetChart.tsx'
 
 const Globe = lazy(() => import('./Globe.tsx'))
 const rad = Math.PI / 180
@@ -26,16 +29,30 @@ function webglAvailable() {
   } catch { return false }
 }
 
-export function OrbitView({ mission, telemetry }: { mission: ExecutableMission; telemetry: MissionTelemetry }) {
-  const [hasWebgl] = useState(webglAvailable)
-  const [globe, setGlobe] = useState(hasWebgl)
+export function OrbitView({ mission, telemetry, accesses }: { mission: ExecutableMission; telemetry: MissionTelemetry; accesses: readonly Interval[] }) {
   const env = useMemo(() => environmentModel(mission.environment), [mission.environment])
   const lunar = env.body === 'moon'
+  const [hasWebgl] = useState(webglAvailable)
+  const [globe, setGlobe] = useState(lunar && hasWebgl)
+  const model = useMemo(() => createFlightModel(mission, mission.analysisProfile), [mission])
+  const opportunity = nextOpportunity(accesses, telemetry.elapsedS)
+  const depicted = opportunity ?? accesses.at(-1)
+  const regional = useMemo(() => {
+    if (lunar || !depicted) return { approach: [], eligible: [] }
+    function sample(start: number, end: number, stride: number) {
+      const points: Vector[] = []
+      for (let time = start; time < end; time += stride) points.push(model.at(time).fixed)
+      return [...points, model.at(end).fixed]
+    }
+    return {
+      approach: sample(Math.max(0, depicted.startS - 180), Math.min(mission.analysisProfile.durationS, depicted.endS + 180), 10),
+      eligible: sample(depicted.startS, depicted.endS, mission.analysisProfile.stepS),
+    }
+  }, [depicted, lunar, mission.analysisProfile, model])
   const paths = useMemo(() => {
-    const model = createFlightModel(mission, mission.analysisProfile)
     const period = mission.orbit.initialState.periodS
     const fixed: Vector[] = []
-    for (let time = 0; time <= mission.analysisProfile.durationS; time += 180) fixed.push(model.at(time).fixed)
+    if (lunar) for (let time = 0; time <= mission.analysisProfile.durationS; time += 180) fixed.push(model.at(time).fixed)
     const inertial = Array.from({ length: 145 }, (_, i) => model.at(i * period / 144).positionM)
     const surface = fixed.map(position => {
       const r = Math.hypot(...position)
@@ -48,7 +65,7 @@ export function OrbitView({ mission, telemetry }: { mission: ExecutableMission; 
       map.at(-1)?.push(`${x.toFixed(2)},${y.toFixed(2)}`)
     })
     return { inertial, surface, map }
-  }, [mission])
+  }, [lunar, mission, model])
   const orbit = useMemo(() => globe ? paths.inertial.map(position => {
     const fixed = inertialToFixed(position, telemetry.elapsedS, env.rotationPeriodS, env.primeMeridianAngleAtEpochRad)
     return [fixed[0] / env.radiusM, fixed[1] / env.radiusM, fixed[2] / env.radiusM] as Vector
@@ -64,9 +81,9 @@ export function OrbitView({ mission, telemetry }: { mission: ExecutableMission; 
     const [x, y] = xy(value)
     return <circle cx={x} cy={y} r="2" fill={color}><title>{label}</title></circle>
   }
-  const fallback = <svg className="ops-map" viewBox="0 0 360 180" role="img"
-    aria-label={lunar ? 'Moon-fixed map of the spacecraft ground track and lunar science target' : 'Earth-fixed map of the spacecraft ground track, science target and ground station'}>
-    <rect width="360" height="180" fill={lunar ? '#232630' : '#101f30'} />
+  const fallback = !lunar ? <TargetChart mission={mission} telemetry={telemetry} opportunity={opportunity} {...regional} station={station} />
+    : <svg className="ops-map" viewBox="0 0 360 180" role="img" aria-label="Moon-fixed map of the spacecraft ground track and lunar science target">
+    <rect width="360" height="180" fill="#232630" />
     {[30, 60, 90, 120, 150].map(y => <path key={y} d={`M0,${y} H360`} stroke="#395467" strokeWidth=".45" />)}
     {[30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map(x => <path key={x} d={`M${x},0 V180`} stroke="#395467" strokeWidth=".45" />)}
     {paths.map.map((points, index) => <polyline key={index} points={points.join(' ')} fill="none" stroke="#5cbdcb" strokeWidth=".7" />)}
@@ -75,9 +92,9 @@ export function OrbitView({ mission, telemetry }: { mission: ExecutableMission; 
     {marker(telemetry.orbital.fixed, 'Spacecraft subpoint', '#effff7')}
   </svg>
   return <section className="hq-panel ops-orbit" aria-labelledby="orbit-view-heading">
-    <div className="ops-panel-head"><div><h2 id="orbit-view-heading">Orbital situation</h2><p>Synthetic {env.label}-fixed view · {mission.target.label}</p></div>
-      {hasWebgl && <button onClick={() => setGlobe(value => !value)}>{globe ? 'Use 2D map' : 'Use 3D globe'}</button>}</div>
-    <div className="ops-canvas">
+    <div className="ops-panel-head"><div><h2 id="orbit-view-heading">{lunar || globe ? 'Orbital situation' : 'Target and ground track'}</h2><p>{env.label}-fixed coordinates · {mission.target.label}</p></div>
+      {hasWebgl && <button onClick={() => setGlobe(value => !value)}>{globe ? lunar ? 'Use 2D map' : 'Use target map' : 'Use 3D globe'}</button>}</div>
+    <div className={lunar || globe ? 'ops-canvas' : 'ops-chart'}>
       {globe ? <GlobeBoundary fallback={fallback}>
         <Suspense fallback={fallback}><Globe orbit={orbit} track={paths.surface} craft={craft} target={target} station={station} sun={sun}
           lunar={lunar} earthDirection={earthDirection} acquired={lunar && !!acquired}
@@ -86,12 +103,13 @@ export function OrbitView({ mission, telemetry }: { mission: ExecutableMission; 
       </GlobeBoundary> : fallback}
     </div>
     <ul className="ops-legend">
-      <li className="craft">Spacecraft</li><li className="ground">Ground track</li>
-      {globe && <li className="orbit">Osculating orbit</li>}
+      <li className="craft">{globe ? 'Spacecraft' : 'Point below spacecraft'}</li>
+      {(!globe || lunar) && <li className="ground">Ground track</li>}
+      {globe && <li className="orbit">Spacecraft orbit above surface</li>}
       <li className={lunar && acquired ? 'orbit' : 'target'}>{lunar && acquired ? 'Imaged target' : 'Target'}</li>
-      {station ? <li className="station">Ground station</li> : globe && <li className="station">Assumed Earth direction during contact</li>}
+      {station ? <li className="station">Ground station{!globe && ' (if in view)'}</li> : globe && <li className="station">Assumed Earth direction during contact</li>}
     </ul>
     {lunar && <p className="hq-small">{env.fixedFrame} · {acquired ? `Latest footprint: ${(acquired.acrossM / 1000).toFixed(2)} × ${(acquired.alongM / 1000).toFixed(2)} km (local approximation)` : 'No reconnaissance imagery acquired.'}</p>}
-    <p className="hq-small">{globe ? 'Drag to orbit, scroll or pinch to zoom, and right-drag or two-finger drag to pan.' : 'Map grid uses longitude and latitude. Select 3D when WebGL is available.'}</p>
+    {globe && <p className="hq-small">Drag to orbit. Scroll or pinch to zoom. The orbit shows the path in space, above the surface.</p>}
   </section>
 }

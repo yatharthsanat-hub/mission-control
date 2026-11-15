@@ -50,7 +50,7 @@ function Camera({ request, bounds }: { request: number; bounds: Bounds }) {
     const verticalAngle = 19 * Math.PI / 180
     const halfAngle = Math.min(verticalAngle, Math.atan(Math.tan(verticalAngle) * size.width / Math.max(1, size.height)))
     const distance = Math.max(.48, radius / Math.sin(Math.max(.08, halfAngle)) * 1.12)
-    camera.position.copy(center).add(new Vector3(1, 1.08, 1.34).normalize().multiplyScalar(distance))
+    camera.position.copy(center).add(new Vector3(.86, .72, 1.44).normalize().multiplyScalar(distance))
     controls.current?.target.copy(center)
     controls.current?.update()
     invalidate()
@@ -86,9 +86,9 @@ export default function Viewport({ parts, preview, selected, choose, markers, ch
         gl.domElement.addEventListener('webglcontextlost', onLost, { once: true })
       }}>
       <color attach="background" args={['#101827']} />
-      <ambientLight intensity={.9} />
+      <ambientLight intensity={.8} />
       <directionalLight position={[1, 1.8, 2]} intensity={2.7} />
-      <directionalLight position={[-1, .2, -.7]} intensity={1.2} color="#789fbe" />
+      <directionalLight position={[-1, .6, -.7]} intensity={1.6} color="#8eb9da" />
       <Camera request={fit} bounds={bounds} />
       <gridHelper args={[2, 40, '#416474', '#213646']} position={[0, -.21, 0]} />
       {showAxes && <axesHelper args={[.32]} />}

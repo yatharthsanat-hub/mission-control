@@ -143,6 +143,7 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
       const raw = await writeLocal(stored.raw, save)
       setStored({ raw, save })
       setNotice(`Assembly revision ${assembly.revision} saved on this device.`)
+      return true
     } catch (reason) { setError(message(reason)) }
     finally { saving.current = false; setBusy(false) }
   }
@@ -151,7 +152,11 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
     <div className="assembly-workspace">
       <a className="skip-link" href="#assembly-tree">Skip to assembly tree</a>
       <header className="assembly-header">
-        <div><a href="?">← Missions</a><h1>Vehicle Assembly</h1></div>
+        <div><a href="?" onClick={async event => {
+          if (!dirty || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+          event.preventDefault()
+          if (await saveDraft()) location.assign('?')
+        }}>{dirty ? 'Save draft and return to Missions' : 'Back to Missions'}</a><h1>Vehicle Assembly</h1></div>
         <div className="assembly-header-actions">
           <a href={lunarRoute ? '?mode=planning&body=moon' : '?mode=planning'}>Mission Planning</a>
           <span>{stored.save.agency.name} · Revision {assembly.revision}{dirty ? ' · Unsaved' : ''}</span>
@@ -216,7 +221,8 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
             <button disabled={!history.past.length} onClick={() => undoOrRedo('undo')}>Undo</button>
             <button disabled={!history.future.length} onClick={() => undoOrRedo('redo')}>Redo</button>
           </div>
-          {use3d && <p className="assembly-view-guide">Drag to orbit · scroll or pinch to zoom · right-drag to pan. Amber marks center of mass or an invalid placement. Procedural hardware and stowed dimensions are illustrative.</p>}
+          <p className="assembly-view-guide">Launch view uses stowed dimensions. In flight, solar generation uses the mounted panel’s modeled output in sunlight. Deployment geometry and animation are outside the model.</p>
+          {use3d && <p className="assembly-view-guide">Select a part to inspect it. Drag to orbit and scroll or pinch to zoom. Amber marks center of mass or an invalid placement.</p>}
           <section className="assembly-placement" aria-label="Component placement">
             <h2>{reuse ? 'Reattach' : 'Place'} {draftPart.name}</h2>
             <p>{draftPart.description}</p>
@@ -265,7 +271,8 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
             </li>)}</ul>
           </section>
           {selected && <section className="assembly-selection">
-            <h3>{partDefinition(selected.part).name}</h3>
+            <p className="assembly-eyeline">Selected component</p><h3>{partDefinition(selected.part).name}</h3>
+            <p>{partDefinition(selected.part).description}</p>
             <p>{selected.mounted ? `Position (m) · ${formatVector(selected.pose.positionM)}` : 'Detached from spacecraft'}</p>
             {selected.mounted && <details><summary>Orientation · local axes in bus coordinates</summary>
               <p>{selected.pose.axes.map((axis, index) => `${'XYZ'[index]} [${axis.join(', ')}]`).join(' · ')}</p>

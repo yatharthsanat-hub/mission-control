@@ -71,12 +71,12 @@ export default function Globe({ orbit, track, craft, target, station, sun, acces
       <sphereGeometry args={[1, 56, 36]} />
       <meshStandardMaterial color={lunar ? '#babac0' : '#133653'} map={texture} roughness={.92} />
     </mesh>
-    <group scale={1.004}>
+    {lunar && <group scale={1.004}>
       {grid.map((line, index) => <Line key={index} points={line.map(three)} color="#507590" transparent opacity={.45} />)}
-    </group>
-    <group scale={1.008}>
+    </group>}
+    {track.length > 1 && <group scale={1.008}>
       <Line points={track.map(three)} color="#5cbdcb" transparent opacity={.65} />
-    </group>
+    </group>}
     <Line points={orbit.map(three)} color="#96b5df" lineWidth={1.7} />
     {contact && contactEnd && <Line points={[three(craft), three(contactEnd)]} color="#79adff" lineWidth={2} />}
     {access && <Line points={[three(craft), three(target)]} color="#ffce89" lineWidth={2} />}

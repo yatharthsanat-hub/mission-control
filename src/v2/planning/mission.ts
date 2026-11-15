@@ -176,7 +176,7 @@ function parseOrbit(raw: unknown): OrbitInput {
   return { ...orbit } as OrbitInput
 }
 
-function parsePlan(raw: unknown): Plan {
+export function parsePlan(raw: unknown): Plan {
   const input = record(raw)
   return { objective: choice(input.objective, objectives), target: choice(input.target, targets), launch: choice(input.launch, launches),
     orbit: parseOrbit(input.orbit), revisedFrom: input.revisedFrom === null ? null : identifier(input.revisedFrom) }
@@ -348,7 +348,7 @@ export type LunarMission = Immutable<ReturnType<typeof buildLunarMission>>
 export type ExecutableMission = ForecastMission | LunarMission
 export type ApprovedMission = MissionConfiguration | ExecutableMission
 
-function parseLunarPlan(value: unknown): LunarPlan {
+export function parseLunarPlan(value: unknown): LunarPlan {
   const input = record(value)
   if (input.body !== 'moon' || input.launch !== 'lunar-service') throw new Error('Invalid lunar scenario.')
   return { body: 'moon', launch: 'lunar-service', objective: choice(input.objective, lunarObjectives),

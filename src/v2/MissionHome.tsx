@@ -7,7 +7,7 @@ import type { Destination } from './missionEntry.ts'
 import './headquarters.css'
 
 const destinations = [
-  { id: 'earth', name: 'Earth Observation', difficulty: 'Introductory', task: 'Design a spacecraft to image croplands. Coordinate sunlight, target access and ground passes to return usable scenes.',
+  { id: 'earth', name: 'Earth Observation', difficulty: 'Independent mission', task: 'Build a spacecraft and choose its orbit, launch service, and when to image or transmit. Compare how your choices affect science and cost.',
     source: 'https://science.nasa.gov/resource/blue-marble-2002/', credit: 'NASA Earth Observatory' },
   { id: 'moon', name: 'Lunar Reconnaissance', difficulty: 'Advanced · Research required', task: 'Start in lunar orbit, collect repeat optical scenes and compare evidence from candidate surface sites.',
     source: 'https://science.nasa.gov/resource/lunar-near-side-2/', credit: 'NASA / GSFC / ASU' },
@@ -39,8 +39,8 @@ export function MissionHome() {
           <h1>Choose your mission.</h1>
           <p>Assemble a spacecraft, plan the orbit and bring science home.</p></div>
         <div className="mission-demo">
-          <a className="mission-button primary" href="?mode=demo">Try Demo Mission <span aria-hidden="true">↗</span></a>
-          <p>Fly a ready-to-use Earth spacecraft. Demo progress stays in this tab.</p>
+          <a className="mission-button primary" href="?mode=demo">Start guided tutorial <span aria-hidden="true">↗</span></a>
+          <p>Learn to image Sacramento Valley and send a scene home. Progress stays in this tab.</p>
         </div>
       </section>
       {state?.error && <p role="status">{state.error}</p>}

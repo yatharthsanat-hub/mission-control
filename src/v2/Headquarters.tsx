@@ -116,6 +116,7 @@ export function Headquarters() {
         <div className="hq-shell hq-top-inner">
           <a className="hq-brand" href="?"><span className="hq-mark"><Icon name="orbit" /></span>MISSION CONTROL</a>
           <nav className="hq-actions" aria-label="Workspaces">
+            <a className="hq-nav-link" href="?">Back to Missions</a>
             {save && <a className="hq-nav-link" href="?mode=assembly">Vehicle Assembly</a>}
             {save && <a className="hq-nav-link" href="?mode=planning">Mission Planning</a>}
             {save?.missions?.length ? <a className="hq-nav-link" href="?mode=operations">Mission Operations</a> : null}

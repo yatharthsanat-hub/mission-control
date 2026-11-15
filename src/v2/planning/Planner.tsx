@@ -3,7 +3,7 @@ import { applyCommand } from '../agency.ts'
 import { readLocal, writeLocal } from '../localSaves.ts'
 import { decodeSave } from '../saveFormat.ts'
 import type { Save } from '../saveFormat.ts'
-import { approvalContext, approveForecastMission, approveLunarMission, defaultPlan, forecastApprovedMission, forecastReview, launches, lunarMissionSources, lunarService, maxApprovedMissions, missionSources, objectives, review, reviewLunar, targets } from './mission.ts'
+import { approvalContext, approveForecastMission, approveLunarMission, defaultPlan, forecastApprovedMission, forecastReview, launches, lunarMissionSources, lunarService, maxApprovedMissions, missionSources, objectives, parseLunarPlan, parsePlan, review, reviewLunar, targets } from './mission.ts'
 import type { ApprovedMission, Plan } from './mission.ts'
 import { environment, groundTrack } from './orbit.ts'
 import type { OrbitInput } from './orbit.ts'
@@ -73,6 +73,8 @@ function comparisonCase(label: string, plan: Plan | LunarPlan, assessment: Compa
   }
 }
 
+const draftKey = (agency: string, lunar: boolean) => `mission-control-plan-1:${agency}:${lunar ? 'moon' : 'earth'}`
+
 export default function Planner() {
   const [stored, setStored] = useState<{ raw: string; save: Save } | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -91,7 +93,20 @@ export default function Planner() {
     let mounted = true
     readLocal().then(({ raw }) => {
       if (!mounted) return
-      if (raw !== undefined) setStored({ raw, save: decodeSave(raw) })
+      if (raw !== undefined) {
+        const save = decodeSave(raw)
+        setStored({ raw, save })
+        const moon = new URLSearchParams(location.search).get('body') === 'moon'
+        try {
+          const saved = window.sessionStorage.getItem(draftKey(save.id, moon))
+          if (saved) {
+            const draft = JSON.parse(saved)
+            setPlan(moon ? parseLunarPlan(draft.plan) : parsePlan(draft.plan))
+            setCraft(save.missions?.some(mission => mission.id === draft.craft) ? draft.craft : 'draft')
+            setNotice('Unapproved plan restored from this tab. Review readiness before approving.')
+          }
+        } catch { /* Open the default plan when the temporary draft is unavailable. */ }
+      }
       setLoaded(true)
     }).catch(reason => {
       if (!mounted) return
@@ -140,6 +155,7 @@ export default function Planner() {
       const raw = await writeLocal(stored.raw, { ...save, revision: save.revision + 1, agency, missions: [...history, mission] })
       setStored({ raw, save: decodeSave(raw) })
       setJustApproved(true)
+      try { window.sessionStorage.removeItem(draftKey(save.id, lunar)) } catch { /* Approved snapshot is already saved. */ }
       setNotice(`${mission.objective.label} approved. ${usd(mission.budget.totalCents)} committed.`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to save the approved mission.')
@@ -170,7 +186,11 @@ export default function Planner() {
     <a className="skip-link" href="#mission-planning">Skip to mission planning</a>
     <header className="hq-top"><div className="hq-shell hq-top-inner">
       <a className="hq-brand" href="?">MISSION CONTROL</a>
-      <nav className="hq-actions" aria-label="Workspaces"><a className="hq-nav-link" href="?">Missions</a><a className="hq-nav-link" href={lunar ? '?mode=assembly&next=moon' : '?mode=assembly'}>Vehicle Assembly</a><a className="hq-nav-link" href="?mode=headquarters">Headquarters</a></nav>
+      <nav className="hq-actions" aria-label="Workspaces"><a className="hq-nav-link" href="?" onClick={event => {
+        if (busy) { event.preventDefault(); return }
+        if (!save || justApproved) return
+        try { window.sessionStorage.setItem(draftKey(save.id, lunar), JSON.stringify({ plan, craft })) } catch { /* Approved snapshots live in the agency save. */ }
+      }}>Back to Missions</a><a className="hq-nav-link" href={lunar ? '?mode=assembly&next=moon' : '?mode=assembly'}>Vehicle Assembly</a><a className="hq-nav-link" href="?mode=headquarters">Headquarters</a></nav>
     </div></header>
     <main className="hq-shell hq-main" id="mission-planning" tabIndex={-1}>
       <div className="hq-heading"><div><p className="hq-kicker">{lunar ? 'Lunar reconnaissance program' : 'Earth observation program'}</p><h1>Mission planning</h1>
@@ -179,7 +199,10 @@ export default function Planner() {
       <div className="hq-status" role="status">{busy ? 'Committing mission…' : notice || (!loaded ? 'Opening local agency save…' : '')}</div>
       {error && <div className="hq-alert" role="alert">{error} <a href="?mode=planning">Reload planner</a></div>}
       {loaded && !save && !error && <p>Create or open an agency in <a href="?mode=headquarters">Headquarters</a> to continue.</p>}
-      {save && <nav className="plan-route" aria-label="Planning workflow"><a href="#design-heading">Configure</a><a href="#preview-heading">Check trajectory</a>{assessment && <><a href="#compare-heading">Compare</a><a href="#readiness-heading">Resolve readiness</a><a href="#budget-heading">Approve</a></>}</nav>}
+      {save && <nav className="flight-route" aria-label="Mission progress">
+        <ol className="mission-progress"><li aria-current="step">Plan</li><li>Flight</li><li>Review</li></ol>
+        <div className="plan-route"><a href="#design-heading">Configure</a><a href="#preview-heading">Check trajectory</a>{assessment && <><a href="#compare-heading">Compare</a><a href="#readiness-heading">Resolve readiness</a><a href="#budget-heading">Approve</a></>}</div>
+      </nav>}
       {save && <div className="plan-console">
         <section className="hq-panel plan-setup" aria-labelledby="design-heading">
           <h2 id="design-heading">Mission design</h2>
@@ -209,6 +232,7 @@ export default function Planner() {
               const objective = event.target.value as Plan['objective']
               setPlan({ ...plan, objective, target: objective === 'crops' ? 'valley' : 'delta' })
             }}>{Object.entries(objectives).map(([id, objective]) => <option key={id} value={id}>{objective.label}</option>)}</select></label>
+            {plan.objective === 'floods' && <p className="hq-warn">The catalog camera lacks the blue and green bands required for this objective. Use crop monitoring for a flyable Earth mission.</p>}
             <label>Target region <select value={plan.target} onChange={event => setPlan({ ...plan, target: event.target.value as Plan['target'] })}>
               {Object.entries(targets).map(([id, target]) => <option key={id} value={id}>{target.label}</option>)}
             </select></label>
@@ -218,6 +242,7 @@ export default function Planner() {
             </>}
           </div>
           <fieldset><legend>Orbital elements</legend>
+            {!lunar && <p className="hq-small">Altitude changes image detail and orbital period. Inclination changes which latitudes the orbit can reach. The ascending node and starting anomaly change where and when passes occur. Compare the forecast before approving.</p>}
             <div className="plan-fields plan-orbit-fields">{fields.map(([field, label]) => <label key={field}>{label}
               <input type="number" step="any" value={Number.isFinite(plan.orbit[field]) ? plan.orbit[field] : ''}
                 onChange={event => setPlan({ ...plan, orbit: { ...plan.orbit, [field]: event.target.valueAsNumber } })} />

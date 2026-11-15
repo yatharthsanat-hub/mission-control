@@ -39,3 +39,27 @@ The landing-page photographs are locally bundled artwork. They do not enter miss
 - Headless Chrome ran the production bundle. The walkthrough covered a fresh landing, the two credited images, the demo at 360 px, a successful demo reload and a failed demo replay with downlink withheld. Headquarters still had no agency after the demo.
 - The agency walkthrough created an account-free local agency, trained the program, unlocked pointing, assembled and saved a vehicle, compared lunar plans, and completed Earth and lunar flights. Both successful missions delivered two required scenes. A lunar flight without downlink acquired two scenes, delivered zero and exported an incomplete assessment. Success and incomplete records reproduced after reload or replay. The 3D camera responded to drag, and induced WebGL context loss switched to the 2D map. The 360 px fallback review stayed within the viewport.
 - After Earth and two lunar approvals and multiple reloads or replays, the ledger showed unchanged expected balances of USD 385,000 cash, 384,100 committed, 900 available and 425,000 paid. The lunar grant appeared once.
+
+## Pass 2 checklist
+
+- Drive the six tutorial stages from spacecraft inspection, window navigation, real command playback and science delivery. Keep tutorial state separate from agency saves.
+- Make finish availability and time controls explicit, with tests for required decisions and replay.
+- Default Earth flights to a local geographic chart showing the target and actual modeled access. Keep the global view available.
+- Refine the assembly silhouette within catalog bounds and label stowed and flight assumptions.
+- Clarify navigation and independent planning choices, then verify both journeys and commit locally.
+
+### Pass 2 implementation
+
+- The guided Earth flight uses six stages. Inspect the mounted hardware, reach a forecast imaging window, arm imaging and step the run, then arm downlink and simulate a real contact. Review unlocks after one complete scene arrives. Finish mission applies the retained modes to the remaining five-second intervals. The full science requirement is evaluated at the end.
+- Independent flights retain manual and armed modes, playback, stepping, and window controls. Finish is available after Start and can produce a failure. Its explanation states which intervals are simulated and that unused opportunities can be missed.
+- The Earth chart is centered on the approved target coordinates. It shows a short body-fixed subpoint trace for the current or next modeled window, with the eligible segment distinguished from the approach. It never uses imagery as a science product. The optional Earth globe shows the orbit above the surface. The Moon retains its existing globe and map fallback.
+- Assembly uses the same catalog bounds, stowed transforms and launch checks. The longer-looking optical barrel, antenna reflector and three-quarter camera are procedural. The flight power model assumes derated panel output in sunlight. No deployed dimensions, hinge dynamics or antenna gain come from the rendering.
+- Independent users choose a spacecraft, objective, orbit, target, launch service and flight commands through the existing model. The coastal flood requirement still blocks approval with the existing red and near-infrared camera. No new science objective or sensor was added.
+- Back to Missions checkpoints an in-progress flight and can save a changed assembly. Valid unapproved planning inputs can be restored in the originating tab. Approval acknowledgments and pinned comparisons are session UI state and need to be set again after leaving the planner. No persisted agency, mission or flight record schema changed.
+
+### Pass 2 verification
+
+- All 60 tests passed, including the 58 inherited tests. New cases exercised the six tutorial stages against the real flight engine, required a complete delivery before tutorial finish, and checked the independent and completed finish states and deterministic replay.
+- Strict app and tooling TypeScript checks, ESLint, Vite production build and Git whitespace checks passed. Vite still warns about the size of the lazy 3D bundle.
+- Chrome verified the fresh tutorial, checkpoint reload and restart, regional Earth chart and optional Earth globe, assembly saving via Back to Missions, recovery of an unapproved Earth plan, and successful Earth and lunar science. The lunar review also verified a failure when the radio stayed in standby, saved results and export, 3D context loss with map fallback, and a 360 px review.
+- With an existing agency in the same browser tab, reopening and exiting the tutorial left cash, commitments, available funds and payments unchanged. Earth and lunar mission checkpoints replayed without duplicate financial entries.

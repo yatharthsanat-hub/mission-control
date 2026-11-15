@@ -11,6 +11,9 @@ import type { CommandKind, MissionRecord, MissionTelemetry } from './run.ts'
 import { OrbitView } from './OrbitView.tsx'
 import { LunarReview } from './LunarReview.tsx'
 import { createDemo, demoCheckpointKey, readDemoCheckpoint } from './demo.ts'
+import { TutorialGuide } from './TutorialGuide.tsx'
+import { finishControl, restoreInspection, tutorialInspectionKey } from './tutorial.ts'
+import type { TutorialPart } from './tutorial.ts'
 import '../headquarters.css'
 import './operations.css'
 
@@ -71,7 +74,7 @@ function ScienceReview({ mission, forecast, data, demo }: { mission: ExecutableM
     ['Unserved housekeeping energy', forecast.power.unmetJ.toFixed(1) + ' J', data.unmetJ.toFixed(1) + ' J'],
   ] as const
   return <section className="hq-panel ops-review" aria-labelledby="review-heading">
-    <div className="ops-panel-head"><div><h2 id="review-heading">Science and Program Review</h2><p>{mission.objective.product} · {mission.target.label}</p></div>
+    <div className="ops-panel-head"><div><h2 id="review-heading" tabIndex={-1}>Science and Program Review</h2><p>{mission.objective.product} · {mission.target.label}</p></div>
       <strong className={data.verdict === 'Success' ? 'hq-good' : 'hq-warn'}>{data.verdict}</strong></div>
     <div className="ops-review-counts">
       <div><span>Target windows</span><strong>{data.targetWindows}</strong></div>
@@ -109,6 +112,12 @@ function Flight({ mission, opened, demo = false }: { mission: ExecutableMission;
   const [run, setRun] = useState(() => createMissionRun(mission, checkpoint))
   const [data, setData] = useState(() => run.snapshot())
   const [started, setStarted] = useState(Boolean(checkpoint))
+  const [inspected, setInspected] = useState<TutorialPart[]>(() => {
+    if (demo) {
+      try { return restoreInspection(window.sessionStorage) } catch { /* Storage can be disabled. */ }
+    }
+    return []
+  })
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(600)
   const [status, setStatus] = useState(checkpoint ? 'Saved flight restored.' : '')
@@ -122,9 +131,9 @@ function Flight({ mission, opened, demo = false }: { mission: ExecutableMission;
     if (demo) {
       try {
         window.sessionStorage.setItem(demoCheckpointKey, JSON.stringify(record))
-        setStatus('Demo checkpoint saved in this tab.')
-      } catch { setStatus('Demo checkpoint stays in memory until this page closes.') }
-      return
+        setStatus('Tutorial checkpoint saved in this tab.')
+      } catch { setStatus('Tutorial checkpoint stays in memory until this page closes.') }
+      return Promise.resolve(true)
     }
     const request = ++saveRequest.current
     setStatus('Saving flight…')
@@ -143,6 +152,7 @@ function Flight({ mission, opened, demo = false }: { mission: ExecutableMission;
         setStatus('Flight checkpoint not saved.')
       }
     })
+    return saveQueue.current.then(() => store.current.save.operations?.includes(record) === true)
   }, [demo, mission.id])
 
   useEffect(() => {
@@ -199,6 +209,21 @@ function Flight({ mission, opened, demo = false }: { mission: ExecutableMission;
     setRun(resetRun)
     setData(resetRun.snapshot())
     saveProgress(resetRun.record())
+    if (demo) {
+      setStarted(false)
+      storeInspection([])
+      try { window.sessionStorage.removeItem(demoCheckpointKey) } catch { /* Restart remains available in memory. */ }
+    }
+  }
+
+  function storeInspection(parts: TutorialPart[]) {
+    setInspected(parts)
+    try { window.sessionStorage.setItem(tutorialInspectionKey, JSON.stringify(parts)) } catch { /* Inspection stays in memory. */ }
+  }
+
+  function start() {
+    setStarted(true)
+    saveProgress(run.record())
   }
 
   const nextTarget = forecast.accesses.find(window => window.startS > data.elapsedS)
@@ -208,30 +233,49 @@ function Flight({ mission, opened, demo = false }: { mission: ExecutableMission;
   const storage = percent(resources.occupiedBits, mission.spacecraft.storageCapacityBits)
   const latestEvent = data.events.findLast(event => event.kind === 'warning' || event.kind === 'science' ||
     event.text.startsWith('Manual transmission'))
+  const finish = finishControl(started, data.complete, demo, resources.delivered)
+  const finishPanel = <div className="ops-finish">
+    {data.complete ? <a href="#review-heading">Open science review</a> :
+      <button className={demo && finish.enabled ? 'hq-primary' : undefined} disabled={!finish.enabled} aria-describedby="finish-help"
+        onClick={() => {
+          if (!finish.enabled) return
+          advanceTo(durationS)
+          requestAnimationFrame(() => document.getElementById('review-heading')?.focus())
+        }}>Finish mission</button>}
+    <p id="finish-help" className="hq-small">{finish.explanation}</p>
+  </div>
 
   return <>
-    <div className="ops-title"><div><p className="hq-kicker">{demo ? 'Demo flight' : 'Mission Control'} · {lunar ? 'Lunar reconnaissance' : 'Earth observation'}</p><h1>{mission.objective.label}</h1>
+    {!demo && <nav className="flight-route" aria-label="Mission progress">
+      <a href="?" onClick={async event => {
+        if (!started || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+        event.preventDefault()
+        setPlaying(false)
+        if (await saveProgress(run.record())) location.assign('?')
+      }}>Back to Missions</a>
+      <ol className="mission-progress"><li className="reached"><a href={lunar ? '?mode=planning&body=moon' : '?mode=planning'}>Plan</a></li>
+        <li aria-current={!data.complete ? 'step' : undefined} className={data.complete ? 'reached' : undefined}>Flight</li>
+        <li aria-current={data.complete ? 'step' : undefined}>{data.complete ? <a href="#review-heading">Review</a> : 'Review'}</li></ol>
+    </nav>}
+    <div className="ops-title"><div><p className="hq-kicker">{demo ? 'Guided tutorial' : 'Independent mission'} · {lunar ? 'Lunar reconnaissance' : 'Earth observation'}</p><h1>{mission.objective.label}</h1>
       <p>{mission.target.label} · Approved spacecraft revision {mission.assembly.revision}</p>
       {lunar && <p>Flight begins in Moon-centered orbit after assumed insertion.</p>}</div>
       <div className="ops-clock"><span>{data.complete ? 'Mission complete' : !started ? 'Awaiting start' : playing ? 'Running' : 'Paused'}</span>
         <strong>T+{clock(data.elapsedS)}</strong><small>Elapsed TDB · {mission.orbit.elements.frame}</small></div></div>
     <p className="ops-save" role="status">{status}</p>
     {error && <p className="hq-alert" role="alert">{error} <a href={location.search}>Reload saved flight</a></p>}
-    {demo && !data.complete && <aside className="mission-route-note">
-      <strong>Return {data.goal} complete scenes</strong>
-      <p>{!started ? 'Start the mission and use Go to next target to reach a valid imaging window.' :
-        resources.captured === 0 ? 'Go to next target, then Capture now. You can arm imaging to capture automatically at later eligible windows.' :
-          resources.delivered < data.goal ? 'Arm imaging and downlink, then Run to end & review. Scenes left onboard cannot count toward the objective.' :
-            'The required scenes are on the ground. Run to end to review the mission.'}</p>
-    </aside>}
+    {demo && <TutorialGuide data={data} started={started} inspected={inspected} forecast={forecast} clock={clock}
+      inspect={part => storeInspection([...inspected.filter(item => item !== part), part])}
+      start={start} advance={advanceTo} armImaging={() => send('arm-imaging')} armRadio={() => send('arm-downlink')} retry={reset} />}
+    {demo && !data.complete && finishPanel}
     {data.complete && <ScienceReview mission={mission} forecast={forecast} data={data} demo={demo} />}
     {data.complete && mission.schemaVersion === 3 && <LunarReview mission={mission} data={data} save={opened.save} />}
     <div className="ops-grid">
-      <OrbitView mission={mission} telemetry={data} />
+      <OrbitView mission={mission} telemetry={data} accesses={forecast.accesses} />
       <section className="hq-panel ops-console" aria-labelledby="console-heading">
         <h2 id="console-heading">Flight console</h2>
-        <div className="ops-transport">
-          {!started ? <button className="hq-primary" onClick={() => { setStarted(true); saveProgress(run.record()) }}>Start mission</button> :
+        {!demo && <><div className="ops-transport">
+          {!started ? <button className="hq-primary" onClick={start}>Start mission</button> :
             <button className="hq-primary" disabled={data.complete} onClick={() => {
               if (playing) saveProgress(run.record())
               setPlaying(!playing)
@@ -239,20 +283,20 @@ function Flight({ mission, opened, demo = false }: { mission: ExecutableMission;
           <label>Speed <select value={speed} onChange={event => setSpeed(Number(event.target.value))}>
             {[1, 120, 600, 3600].map(rate => <option key={rate} value={rate}>{rate}×</option>)}</select></label>
           <button disabled={!started || data.complete} onClick={() => advanceTo(data.elapsedS + stepS)}>Step 5 s</button>
-        </div>
-        <dl className="ops-telemetry">
+        </div><p className="hq-small">Pause freezes time. Step advances one five-second interval. Go to next target or contact simulates the intervening time with your current settings.</p></>}
+        <details className="hq-detail"><summary>Orbit and electrical telemetry</summary><dl className="ops-telemetry">
           <div><dt>Altitude</dt><dd>{(orbital.altitudeM / 1000).toFixed(1)} km</dd></div>
           <div><dt>Inertial speed</dt><dd>{(Math.hypot(...orbital.velocityMps) / 1000).toFixed(3)} km/s</dd></div>
           <div><dt>Illumination {data.complete ? '· final interval' : '· next interval'}</dt><dd>{upcoming.eclipse ? 'Eclipse' : 'Sunlight'} · {upcoming.generationW.toFixed(1)} W</dd></div>
           <div><dt>Load · last interval</dt><dd>{data.lastLoadW.toFixed(1)} W · {data.lastActivity}</dd></div>
-        </dl>
+        </dl></details>
         <div className="ops-meter"><label htmlFor="ops-battery">Battery</label><output>{battery.toFixed(1)}%</output>
           <meter id="ops-battery" min={0} max={100} low={15} value={battery} /></div>
         <div className="ops-meter"><label htmlFor="ops-storage">Onboard data</label><output>{sizeMB(resources.occupiedBits)} / {sizeMB(mission.spacecraft.storageCapacityBits)}</output>
           <meter id="ops-storage" min={0} max={100} value={storage} /></div>
         <div className="ops-science-count"><span>Acquired <strong>{resources.captured}</strong></span><span>Delivered <strong>{resources.delivered} / {data.goal}</strong></span></div>
         <p className="hq-small">{sizeMB(resources.deliveredBits)} received on the ground, including partial transmissions.</p>
-        <fieldset disabled={!started || data.complete}>
+        {!demo && <><fieldset disabled={!started || data.complete}>
           <legend>Imaging</legend>
           <p>{upcoming.access.available ? `Target window open · ${upcoming.access.bestGsdM.toFixed(1)} m/px` : accessReasons[upcoming.access.reason]}</p>
           <p>Capture now requests one exposure in the next step. Armed imaging waits for a qualifying view.</p>
@@ -272,16 +316,15 @@ function Flight({ mission, opened, demo = false }: { mission: ExecutableMission;
             <button type="button" onClick={() => send('downlink-now')}>Transmit 5 s now</button>
             <button type="button" disabled={!nextContact} onClick={() => nextContact && advanceTo(nextContact.startS)}>Go to next contact</button>
           </div>
-        </fieldset>
+        </fieldset></>}
         {data.pending.length > 0 && <p className="hq-small">Commands queued for the next 5 s interval.</p>}
         {latestEvent && <p className={`ops-feedback ${latestEvent.kind === 'warning' ? 'hq-warn' : ''}`} role="status">T+{clock(latestEvent.atS)} · {latestEvent.text}</p>}
         {battery <= 15 && !data.complete && <p className="hq-warn">Battery reserve advisory. Hold imaging or downlink to reduce load.</p>}
-        <div className="ops-actions ops-close">
+        {!demo && <><div className="ops-actions ops-close">
           <button disabled={!started} onClick={() => { setPlaying(false); saveProgress(run.record()) }}>Save checkpoint</button>
           <button disabled={!started} onClick={reset}>Reset flight</button>
-          <button disabled={!started || data.complete} onClick={() => advanceTo(durationS)}>Run to end &amp; review</button>
         </div>
-        <p className="hq-small">Jump and end controls simulate every intervening interval with the current modes.</p>
+        {finishPanel}</>}
       </section>
       <Windows forecast={forecast} elapsedS={data.elapsedS} lunar={lunar} />
       <EventLog events={data.events} />
@@ -297,7 +340,7 @@ function DemoFlight() {
     return { mission, opened: { raw: '', save: { ...save, operations: checkpoint ? [checkpoint] : [] } } }
   })
   return <div className="hq ops">
-    <header className="hq-top"><div className="hq-shell hq-top-inner"><a href="?" className="hq-brand">MISSION CONTROL</a><a href="?">Exit demo</a></div></header>
+    <header className="hq-top"><div className="hq-shell hq-top-inner"><a href="?" className="hq-brand">MISSION CONTROL</a><a href="?">Back to Missions · Exit tutorial</a></div></header>
     <main className="hq-shell hq-main"><Flight mission={mission} opened={opened} demo /></main>
   </div>
 }
@@ -325,8 +368,8 @@ function AgencyFlights() {
     <a className="skip-link" href="#operations">Skip to Mission Control</a>
     <header className="hq-top"><div className="hq-shell hq-top-inner">
       <a href="?" className="hq-brand">MISSION CONTROL</a>
-      <nav className="hq-actions" aria-label="Workspaces"><a href="?" className="hq-nav-link">Missions</a><a href="?mode=headquarters" className="hq-nav-link">Headquarters</a>
-        <a href="?mode=planning" className="hq-nav-link">Mission Planning</a><a href="?mode=operations" className="hq-nav-link">Approved missions</a></nav>
+      <nav className="hq-actions" aria-label="Workspaces">{!mission && <a href="?" className="hq-nav-link">Back to Missions</a>}<a href="?mode=headquarters" className="hq-nav-link">Headquarters</a>
+        <a href={mission?.schemaVersion === 3 ? '?mode=planning&body=moon' : '?mode=planning'} className="hq-nav-link">Mission Planning</a><a href="?mode=operations" className="hq-nav-link">Approved missions</a></nav>
     </div></header>
     <main id="operations" className="hq-shell hq-main" tabIndex={-1}>
       {mission && mission.schemaVersion !== 1 && opened ? <Flight mission={mission} opened={opened} /> : <section className="hq-panel ops-list">
