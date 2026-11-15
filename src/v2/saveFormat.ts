@@ -6,7 +6,7 @@ import { restoreAssembly } from './assembly/engine.ts'
 import type { Assembly } from './assembly/engine.ts'
 import { partDefinition } from './assembly/catalog.ts'
 import { approvalContext, maxApprovedMissions, restoreMission } from './planning/mission.ts'
-import type { MissionConfiguration } from './planning/mission.ts'
+import type { ApprovedMission } from './planning/mission.ts'
 
 export const maxSaveSize = 500_000
 const catalogRevision = 'earth-training-1'
@@ -16,7 +16,7 @@ export interface Save {
   revision: number
   agency: Agency
   assembly?: Assembly
-  missions?: readonly MissionConfiguration[]
+  missions?: readonly ApprovedMission[]
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -88,7 +88,7 @@ export function decodeSave(raw: string): Save {
   if (!Array.isArray(input.commands) || input.commands.length > maxCommands) throw new Error('Invalid command history.')
 
   let agency = createAgency(agencyName(input.name))
-  const missions = new Map<string, MissionConfiguration>()
+  const missions = new Map<string, ApprovedMission>()
   if (input.schemaVersion === 4) {
     if (!Array.isArray(input.missions) || !input.missions.length || input.missions.length > maxApprovedMissions) {
       throw new Error('Invalid approved mission history.')
@@ -100,7 +100,7 @@ export function decodeSave(raw: string): Save {
     }
   }
   const applied = new Set<string>()
-  const approved: MissionConfiguration[] = []
+  const approved: ApprovedMission[] = []
   for (const value of input.commands) {
     const command = decodeCommand(value)
     if (applied.has(command.id)) throw new Error('Duplicate transaction in save history.')

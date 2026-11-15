@@ -3,10 +3,15 @@ import { applyCommand } from '../agency.ts'
 import { readLocal, writeLocal } from '../localSaves.ts'
 import { decodeSave } from '../saveFormat.ts'
 import type { Save } from '../saveFormat.ts'
-import { approvalContext, approveMission, defaultPlan, launches, maxApprovedMissions, missionSources, objectives, review, targets } from './mission.ts'
-import type { MissionConfiguration, Plan } from './mission.ts'
+import { approvalContext, approveForecastMission, defaultPlan, forecastApprovedMission, forecastReview, launches, maxApprovedMissions, missionSources, objectives, review, targets } from './mission.ts'
+import type { ApprovedMission, Plan } from './mission.ts'
 import { groundTrack } from './orbit.ts'
 import type { OrbitInput } from './orbit.ts'
+import { analyzeForecast, forecastProfile } from './forecast.ts'
+import type { Forecast } from './forecast.ts'
+import { Comparison, ForecastPanel } from './ForecastPanel.tsx'
+import type { ComparisonCase } from './ForecastPanel.tsx'
+import type { Assembly } from '../assembly/engine.ts'
 import '../headquarters.css'
 import './planner.css'
 
@@ -19,31 +24,48 @@ const fields: readonly [keyof OrbitInput, string][] = [
 ]
 
 function Preview({ orbit, target }: Pick<ReturnType<typeof review>, 'orbit' | 'target'>) {
-  const track = useMemo(() => orbit ? groundTrack(orbit.elements) : [], [orbit])
+  const track = useMemo(() => orbit ? groundTrack(orbit.elements, forecastProfile.durationS) : [], [orbit])
   const lines: string[][] = []
   track.forEach((point, index) => {
     if (!index || Math.abs(point.longitudeDeg - track[index - 1].longitudeDeg) > 180) lines.push([])
     lines.at(-1)?.push((point.longitudeDeg + 180).toFixed(2) + ',' + (90 - point.latitudeDeg).toFixed(2))
   })
   return <figure className="plan-preview">
-    <svg viewBox="0 0 360 180" role="img" aria-label="Six hour ground track over a longitude and latitude grid with the target center marked">
+    <svg viewBox="0 0 360 180" role="img" aria-label="24-hour ground track over a longitude and latitude grid with the target center marked">
       <rect width="360" height="180" fill="#0b1520" />
       {[30, 60, 90, 120, 150].map(y => <path key={y} d={`M0,${y} H360`} stroke="#34505f" strokeWidth=".45" />)}
       {[30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map(x => <path key={x} d={`M${x},0 V180`} stroke="#34505f" strokeWidth=".45" />)}
       {lines.map((points, index) => <polyline key={index} points={points.join(' ')} fill="none" stroke="#74e7c2" strokeWidth="1.1" />)}
       <circle cx={target.longitudeDeg + 180} cy={90 - target.latitudeDeg} r="2.7" fill="#ffd08a" />
     </svg>
-    <figcaption>Six-hour ground track sampled every minute. The amber marker shows the target center. Geography uses a rotating sphere with a fictional meridian at the start epoch.</figcaption>
+    <figcaption>{orbit ? '24-hour subpoint track sampled every minute. The amber marker shows the target center. See the forecast for actual viewing constraints.' : 'Ground track unavailable until the orbit inputs are valid.'}</figcaption>
   </figure>
 }
 
-function downloadMission(mission: MissionConfiguration) {
+function downloadMission(mission: ApprovedMission) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(mission, null, 2)], { type: 'application/json' }))
   const link = document.createElement('a')
   link.href = url
   link.download = `mission-${mission.id}.json`
   link.click()
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+type ComparisonInputs = Pick<ReturnType<typeof forecastReview>, 'orbit' | 'budget' | 'launch'> & {
+  spacecraft: { readonly wetKg: number }
+  forecast: Forecast | null
+  findings: ApprovedMission['findings']
+}
+
+function comparisonCase(label: string, plan: Plan, assessment: ComparisonInputs): ComparisonCase | null {
+  if (!assessment.forecast || !assessment.orbit) return null
+  return {
+    label, scenario: plan.objective + '/' + plan.target, altitudeKm: plan.orbit.altitudeKm,
+    inclinationDeg: plan.orbit.inclinationDeg, periodS: assessment.orbit.initialState.periodS,
+    forecast: assessment.forecast, massKg: assessment.spacecraft.wetKg, launch: assessment.launch.label,
+    fits: !assessment.findings.some(finding => ['Stowed fit', 'Launch mass', 'Service inclination'].includes(finding.id) && finding.status === 'FAIL'),
+    totalCents: assessment.budget.totalCents,
+  }
 }
 
 export default function Planner() {
@@ -55,6 +77,9 @@ export default function Planner() {
   const [plan, setPlan] = useState(defaultPlan)
   const [craft, setCraft] = useState('draft')
   const [busy, setBusy] = useState(false)
+  const [acknowledged, setAcknowledged] = useState<{ plan: Plan; assembly: Assembly } | null>(null)
+  const [pinned, setPinned] = useState<ComparisonCase | null>(null)
+  const [comparisonId, setComparisonId] = useState('')
   const pending = useRef(false)
   useEffect(() => {
     let mounted = true
@@ -73,23 +98,32 @@ export default function Planner() {
   const history = save?.missions ?? []
   const assembly = craft === 'draft' ? save?.assembly : history.find(mission => mission.id === craft)?.assembly
   const context = save ? approvalContext(save.id, save.agency) : null
+  const rfAcknowledged = acknowledged !== null && acknowledged.plan === plan && acknowledged.assembly === assembly
   const assessment = useMemo(() => {
     if (!save || !assembly) return null
     const { availableCents, capabilities } = approvalContext(save.id, save.agency)
-    return review(plan, assembly, availableCents, capabilities)
+    return forecastReview(review(plan, assembly, availableCents, capabilities))
   }, [save, assembly, plan])
+  const approvedBaseline = save?.missions?.find(mission => mission.id === comparisonId)
+  const savedComparison = useMemo(() => approvedBaseline ? comparisonCase(
+    `Snapshot ${approvedBaseline.id.slice(0, 8)}`, approvedBaseline.plan,
+    { ...approvedBaseline, forecast: approvedBaseline.schemaVersion === 2
+      ? forecastApprovedMission(approvedBaseline) : analyzeForecast(approvedBaseline) },
+  ) : null, [approvedBaseline])
+  const comparison = comparisonId === 'pinned' ? pinned : savedComparison
+  const current = assessment && comparisonCase('Current plan', plan, assessment)
   const failures = assessment?.findings.filter(finding => finding.status === 'FAIL').length ?? 0
   const warnings = assessment?.findings.filter(finding => finding.status === 'WARNING').length ?? 0
 
   async function approve() {
-    if (!stored || !save || !assembly || !context || !assessment || failures || justApproved ||
+    if (!stored || !save || !assembly || !context || !assessment || failures || justApproved || !rfAcknowledged ||
       pending.current || history.length >= maxApprovedMissions) return
     pending.current = true
     setBusy(true)
     setError('')
     setNotice('')
     try {
-      const mission = approveMission(crypto.randomUUID(), plan, assembly, context)
+      const mission = approveForecastMission(crypto.randomUUID(), plan, assembly, context, rfAcknowledged)
       const agency = applyCommand(save.agency, { id: mission.id, kind: 'reserve-mission', cents: mission.budget.totalCents })
       const raw = await writeLocal(stored.raw, { ...save, revision: save.revision + 1, agency, missions: [...history, mission] })
       setStored({ raw, save: decodeSave(raw) })
@@ -103,7 +137,7 @@ export default function Planner() {
     }
   }
 
-  function revise(mission: MissionConfiguration) {
+  function revise(mission: ApprovedMission) {
     setJustApproved(false)
     setPlan({ ...mission.plan, revisedFrom: mission.id })
     setCraft(mission.id)
@@ -158,9 +192,26 @@ export default function Planner() {
                 onChange={event => setPlan({ ...plan, orbit: { ...plan.orbit, [field]: event.target.valueAsNumber } })} />
             </label>)}</div>
             <p className="hq-small">Both apsides must be within 300–1,500 km. Inclination is 0–180°. Other angles use 0° to below 360°.</p>
+            {plan.objective === 'crops' && <button className="plan-reference-orbit" type="button" onClick={() => setPlan({
+              ...plan, orbit: { ...defaultPlan.orbit, altitudeKm: 400, inclinationDeg: 40, nodeDeg: 240 },
+            })}>Load crop study orbit</button>}
           </fieldset>
           {plan.revisedFrom && <p className="hq-small">Revising {plan.revisedFrom.slice(0, 8)}. Approval creates a new commitment. <button onClick={startNew}>Start a new plan</button></p>}
         </section>
+        {assessment?.forecast && <ForecastPanel forecast={assessment.forecast} />}
+        {assessment && <section className="hq-panel forecast-comparison" aria-labelledby="compare-heading">
+          <h2 id="compare-heading">Trade study</h2>
+          <p className="hq-small">Pin a candidate before changing the design or compare against a saved approval. Saved snapshots use the current forecast model for this comparison.</p>
+          <div className="hq-actions">
+            <button disabled={!current} onClick={() => { if (current) setPinned({ ...current, label: 'Pinned candidate' }); setComparisonId('pinned') }}>Pin current plan</button>
+            <label>Baseline <select value={comparisonId} onChange={event => setComparisonId(event.target.value)}>
+              <option value="">Choose a baseline</option>
+              {pinned && <option value="pinned">Pinned candidate</option>}
+              {history.map(mission => <option key={mission.id} value={mission.id}>{mission.objective.label} · {mission.id.slice(0, 8)}</option>)}
+            </select></label>
+          </div>
+          {comparison && current && <Comparison baseline={comparison} current={current} />}
+        </section>}
         <section className="hq-panel plan-analysis" aria-labelledby="preview-heading">
           <h2 id="preview-heading">Trajectory and spacecraft</h2>
           {assessment ? <>
@@ -199,9 +250,13 @@ export default function Planner() {
               <div><dt>Total projected commitment</dt><dd>{usd(assessment.budget.totalCents)}</dd></div>
               <div><dt>Available now</dt><dd>{usd(assessment.budget.availableCents)}</dd></div>
             </dl>
+            {!justApproved && assembly && assessment.forecast && <label className="plan-rf-check">
+              <input type="checkbox" checked={rfAcknowledged} onChange={event => setAcknowledged(event.target.checked ? { plan, assembly } : null)} />
+              <span>I acknowledge that RF link margin is unassessed and delivery uses an illustrative service rate.</span>
+            </label>}
             {justApproved ? <button onClick={startNew}>Start a new plan</button> :
-              <button className="hq-primary" disabled={busy || failures > 0 || history.length >= maxApprovedMissions} onClick={() => void approve()}>Approve and commit funds</button>}
-            <p className="hq-small">{justApproved ? 'Review or export the approved snapshot below.' : history.length >= maxApprovedMissions ? 'The local approved-plan history is full.' : failures ? 'Resolve blocking checks to approve.' : 'Approval freezes the inputs, assumptions, and unresolved warnings for handoff.'}</p>
+              <button className="hq-primary" disabled={busy || failures > 0 || !rfAcknowledged || history.length >= maxApprovedMissions} onClick={() => void approve()}>Approve and commit funds</button>}
+            <p className="hq-small">{justApproved ? 'Review or export the approved snapshot below.' : history.length >= maxApprovedMissions ? 'The local approved-plan history is full.' : failures ? 'Resolve blocking checks to approve.' : !rfAcknowledged ? 'Acknowledge the RF assumption to enable training approval.' : 'Approval freezes the inputs, assumptions, and unresolved warnings for handoff.'}</p>
             <details className="hq-detail"><summary>Scientific inputs and limits</summary>
               <p>JPL gravity and sidereal rotation and NASA Landsat 9 band intervals are sourced. Vehicle, cost, target centers, station, and lighting are illustrative. The orbit kernel is TESTED.</p>
               <ul>{Object.values(missionSources).map(source => <li key={source.locator + source.title}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a> · {source.locator}</li>)}</ul>
@@ -211,7 +266,7 @@ export default function Planner() {
         <section className="hq-panel plan-history" aria-labelledby="history-heading">
           <h2 id="history-heading">Approved missions</h2>
           {history.length ? <ul>{history.map(mission => <li key={mission.id}>
-            <div><strong>{mission.objective.label} · {mission.id.slice(0, 8)}</strong><p>Day {mission.approval.programDay} · spacecraft revision {mission.assembly.revision} · {usd(mission.budget.totalCents)} committed</p></div>
+            <div><strong>{mission.objective.label} · {mission.id.slice(0, 8)}</strong><p>Day {mission.approval.programDay} · spacecraft revision {mission.assembly.revision} · {usd(mission.budget.totalCents)} committed · {mission.schemaVersion === 1 ? 'Phase 2 approval' : 'Forecast checked'}</p></div>
             <div className="hq-actions"><button onClick={() => revise(mission)}>Revise {mission.id.slice(0, 8)}</button><button onClick={() => downloadMission(mission)}>Export mission JSON <span className="plan-id">{mission.id.slice(0, 8)}</span></button></div>
           </li>)}</ul> : <p>Approved mission snapshots will appear here.</p>}
         </section>

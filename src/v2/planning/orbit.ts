@@ -49,8 +49,9 @@ export function orbitalSummary(input: OrbitInput) {
   }
 }
 
-export function groundTrack(elements: Elements) {
-  return Array.from({ length: environment.durationS / environment.stepS + 1 }, (_, index) => {
+export function groundTrack(elements: Elements, durationS: number = environment.durationS) {
+  if (!Number.isFinite(durationS) || durationS < 0 || durationS > orbitModel.maxElapsedS) throw new RangeError('Unsupported ground-track duration.')
+  return Array.from({ length: Math.floor(durationS / environment.stepS) + 1 }, (_, index) => {
     const elapsedS = index * environment.stepS
     return { elapsedS, ...geographicSubpoint(propagate(elements, seconds(elapsedS)).positionM, elapsedS) }
   })

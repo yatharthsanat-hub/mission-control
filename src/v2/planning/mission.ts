@@ -8,6 +8,9 @@ import { sourceRegistryRevision, sources } from '../sources.ts'
 import { payloads, training } from '../training.ts'
 import { environment, orbitalSummary, orbitDefaults } from './orbit.ts'
 import type { OrbitInput } from './orbit.ts'
+import { analyzeForecast, forecastProfile } from './forecast.ts'
+import type { Forecast } from './forecast.ts'
+import { missingSpectralBands, sceneVolumeBits } from './geometry.ts'
 
 export const objectives = {
   crops: { label: 'Crop monitoring', product: 'Red and near-infrared scenes for vegetation assessment', bands: training.requiredBands, scenes: 2, groundSampleLimitM: 40, minSunElevationDeg: 15 },
@@ -84,7 +87,7 @@ export function review(plan: Plan, assembly: Assembly, availableCents: number, c
       maxConcurrentLoadW: totals.peakLoadW, chargeEfficiency: 1, dischargeEfficiency: 1 },
     payload: camera ? { instanceId: camera.id, bandsM: payloads.multispectral.bandsM, activeLoadW: camera.loadW,
       pixelIfovRad: 45e-6, ...cameraProfile,
-      sceneBits: cameraProfile.widthPixels * cameraProfile.heightPixels * cameraProfile.bitsPerPixelPerBand * cameraProfile.bandCount } : null,
+      sceneBits: sceneVolumeBits(cameraProfile.widthPixels, cameraProfile.heightPixels, cameraProfile.bitsPerPixelPerBand, cameraProfile.bandCount) } : null,
     communications: radio ? { instanceId: radio.id, activeLoadW: radio.loadW, maxBitRateBps: 256_000 } : null,
     storageCapacityBits: 268_435_456,
   }
@@ -99,7 +102,7 @@ export function review(plan: Plan, assembly: Assembly, availableCents: number, c
   } catch (error) {
     add('Orbit scope', 'FAIL', error instanceof Error ? error.message : 'Unsupported orbit.', 'gravity')
   }
-  const missing = objective.bands.filter(band => !spacecraft.payload?.bandsM.some(([lo, hi]) => lo <= band.rangeM[0] && hi >= band.rangeM[1]))
+  const missing = missingSpectralBands<(typeof objective.bands)[number]>(objective.bands, spacecraft.payload?.bandsM)
   add('Payload spectrum', !camera || missing.length ? 'FAIL' : 'PASS',
     !camera ? 'Mount an imaging payload on the vehicle.' : missing.length ? 'Mounted camera lacks ' + missing.map(band => band.label).join(', ') + '. Choose an objective supported by the camera.' :
       'Mounted camera covers all required wavelength intervals.', 'spectral')
@@ -169,7 +172,7 @@ export function approvalContext(agencyId: string, agency: Agency) {
 }
 
 type Approval = ReturnType<typeof approvalContext>
-type Immutable<T> = { readonly [K in keyof T]: Immutable<T[K]> }
+type Immutable<T> = T extends number | string | boolean | null | undefined ? T : { readonly [K in keyof T]: Immutable<T[K]> }
 
 function freeze<T>(value: T): Immutable<T> {
   if (value && typeof value === 'object') {
@@ -213,6 +216,76 @@ export function approveMission(id: string, rawPlan: Plan, snapshot: Assembly, ap
   return freeze(structuredClone(buildMission(identifier(id), plan, restoreAssembly(snapshot), parseApproval(approval))))
 }
 
+type BasicReview = ReturnType<typeof review>
+
+export function forecastReview(basic: BasicReview) {
+  if (!basic.orbit) return { ...basic, forecast: null }
+  const forecast = analyzeForecast({ ...basic, orbit: basic.orbit, environment })
+  return { ...basic, forecast, findings: forecastFindings(basic.findings, forecast) }
+}
+
+function forecastFindings(basic: readonly Finding[], forecast: Forecast): Finding[] {
+  const findings = basic.filter(finding => !['Observation access', 'Concurrent loads', 'Ground link'].includes(finding.id))
+    .map(finding => finding.id === 'Battery installed' && finding.status === 'PASS'
+      ? { ...finding, explanation: 'Installed energy capacity is used in the forecast.' } : finding)
+  const { accesses, power, communications, contacts, science } = forecast
+  findings.push({
+    id: 'Forecast target access', source: 'attitude', status: accesses.length >= science.goal ? 'PASS' : 'FAIL',
+    explanation: `${accesses.length} sampled windows meet pointing, footprint, target sunlight and sampling limits. At least ${science.goal} are required. Change the orbit or pointing capability if short.`,
+  }, {
+    id: 'Forecast power continuity', source: 'power',
+    status: power.unmetJ > 0 ? 'FAIL' : (power.minChargeJ <= power.capacityJ * forecastProfile.lowChargeFraction ? 'WARNING' : 'PASS'),
+    explanation: power.unmetJ > 0 ? 'The planned timeline leaves housekeeping energy unserved. Increase available generation or storage.' :
+      power.minChargeJ <= power.capacityJ * forecastProfile.lowChargeFraction ? 'Housekeeping is served with 15% charge or less at the minimum.' :
+        'Housekeeping is served throughout the forecast with more than 15% minimum charge.',
+  }, {
+    id: 'Forecast science delivery', source: 'science', status: communications.delivered >= science.goal ? 'PASS' : 'FAIL',
+    explanation: `${science.captured} captured, ${communications.delivered} complete scenes returned under the illustrative schedule. The goal is ${science.goal}. Review target windows, contacts, energy, and remaining onboard data.`,
+  }, {
+    id: 'Ground contacts', source: 'radio', status: contacts.length && communications.rateBps > 0 ? 'PASS' : 'FAIL',
+    explanation: `${contacts.length} contact windows above the station elevation mask. Change orbit geometry or fit a radio if unavailable.`,
+  }, {
+    id: 'RF link budget', source: 'radio', status: 'WARNING',
+    explanation: 'NOT ASSESSED. The rate cap is a training-service assumption. Approval requires explicit acknowledgement of missing link margin.',
+  }, {
+    id: 'Forecast scope', source: 'spin', status: 'WARNING',
+    explanation: 'Synthetic Earth orientation and Sun direction, five-second samples, and illustrative hardware. Forecast feasibility applies to this training scenario.',
+  })
+  return findings
+}
+
+function buildForecastMission(base: MissionConfiguration) {
+  const forecast = analyzeForecast(base)
+  const findings = forecastFindings(base.findings, forecast)
+  if (findings.some(finding => finding.status === 'FAIL')) throw new Error('Resolve failed forecast checks before approval.')
+  return {
+    ...base,
+    schemaVersion: 2 as const,
+    analysisProfile: forecastProfile,
+    environment: { ...base.environment, durationS: forecastProfile.durationS, stepS: forecastProfile.stepS },
+    executionInputs: {
+      ...base.executionInputs,
+      geometry: forecastProfile.geometry,
+      energy: 'cylindrical-eclipse-derated-nameplate-limited-battery-1',
+      operationPolicy: forecastProfile.scheduling,
+    },
+    rfAcknowledged: true as const,
+    findings,
+  }
+}
+
+export type ForecastMission = Immutable<ReturnType<typeof buildForecastMission>>
+export type ApprovedMission = MissionConfiguration | ForecastMission
+
+export function approveForecastMission(id: string, plan: Plan, snapshot: Assembly, approval: Approval, rfAcknowledged: boolean): ForecastMission {
+  if (rfAcknowledged !== true) throw new Error('Acknowledge that RF link margin is not assessed.')
+  return freeze(buildForecastMission(approveMission(id, plan, snapshot, approval)))
+}
+
+export function forecastApprovedMission(mission: ForecastMission): Forecast {
+  return analyzeForecast(mission, mission.analysisProfile)
+}
+
 // JS engines can produce different last bits for trigonometric functions.
 const stateVectorTolerance: Readonly<Record<string, number>> = {
   'orbit.initialState.positionM': 1e-7,
@@ -233,14 +306,17 @@ function matches(value: unknown, expected: unknown, path = '', tolerance = 0): b
       matches(actual[key], canonical[key], path ? path + '.' + key : key, stateVectorTolerance[path] ?? 0))
 }
 
-export function restoreMission(value: unknown): MissionConfiguration {
+export function restoreMission(value: unknown): ApprovedMission {
   const input = record(value)
-  if (input.schemaVersion !== 1) throw new Error('Unsupported mission schema version.')
-  const rebuilt = approveMission(identifier(input.id), parsePlan(input.plan), restoreAssembly(input.assembly), parseApproval(input.approval))
+  if (input.schemaVersion !== 1 && (input.schemaVersion !== 2 || input.rfAcknowledged !== true || !input.analysisProfile)) {
+    throw new Error('Unsupported mission schema version or missing forecast acknowledgement.')
+  }
+  const base = approveMission(identifier(input.id), parsePlan(input.plan), restoreAssembly(input.assembly), parseApproval(input.approval))
+  const rebuilt = input.schemaVersion === 2 ? buildForecastMission(base) : base
   if (!matches(input, rebuilt)) throw new Error('Mission configuration does not match its supported scenario, inputs and models.')
   // Shape and vector components have been checked above. Preserve the original
   // approved vectors instead of replacing them with local trig results.
-  const { positionM, velocityMps, accelerationMps2 } = (input as unknown as MissionConfiguration).orbit.initialState
+  const { positionM, velocityMps, accelerationMps2 } = (input as unknown as ApprovedMission).orbit.initialState
   return freeze({
     ...rebuilt, orbit: { ...rebuilt.orbit, initialState: {
       ...rebuilt.orbit.initialState, positionM: [...positionM] as typeof positionM,

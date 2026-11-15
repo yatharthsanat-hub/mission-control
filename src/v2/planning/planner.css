@@ -39,3 +39,31 @@
   .planner .hq-panel { padding: 14px; }
   .plan-orbit-fields { grid-template-columns: minmax(0, 1fr); }
 }
+.forecast-panel, .forecast-comparison { grid-column: 1 / -1; }
+.forecast-head { display: flex; gap: 8px 20px; align-items: start; justify-content: space-between; flex-wrap: wrap; }
+.forecast-head output { color: var(--hq-accent); font: 650 .93rem/1.5 var(--mono); }
+.forecast-timeline { margin: 18px 0 10px; }
+.forecast-lane, .forecast-ticks { display: grid; grid-template-columns: minmax(80px, 115px) minmax(0, 1fr); gap: 8px; margin-block: 6px; align-items: center; }
+.forecast-lane > span, .forecast-ticks { font: .74rem/1.2 var(--mono); color: var(--hq-muted); }
+.forecast-lane svg { width: 100%; height: 14px; background: #0b1520; display: block; }
+.forecast-lane line { stroke: #324758; stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.forecast-lane .target { fill: #74e7c2; }
+.forecast-lane .contact { fill: #7ea9e3; }
+.forecast-lane .sunlight { fill: #d2ac61; }
+.forecast-lane .eclipse { fill: #657486; }
+.forecast-lane .forecast-charge { height: 42px; }
+.forecast-charge polyline { fill: none; stroke: #74e7c2; stroke-width: 1.3px; vector-effect: non-scaling-stroke; }
+.forecast-ticks div { display: flex; justify-content: space-between; }
+.forecast-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-top: 8px; }
+.forecast-summary section { border-top: 1px solid var(--hq-border); padding-top: 8px; }
+.forecast-summary h3 { font-size: 1rem; }
+.forecast-summary p { font-size: .88rem; margin: 5px 0; }
+.forecast-comparison .hq-table-scroll td:last-child { text-align: right; }
+.forecast-comparison option { max-width: 100%; }
+.plan-rf-check { display: flex; gap: 9px; align-items: start; margin: 12px 0; font-size: .88rem; }
+.planner .plan-rf-check input { min-height: 0; margin-top: 3px; width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--hq-accent); }
+.plan-reference-orbit { margin-top: 8px; }
+@media (max-width: 650px) {
+  .forecast-summary { grid-template-columns: minmax(0, 1fr); }
+  .forecast-lane, .forecast-ticks { grid-template-columns: 83px minmax(0, 1fr); }
+}
