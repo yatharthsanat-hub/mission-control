@@ -3,6 +3,7 @@ import App from './App.tsx'
 import { Headquarters } from './v2/Headquarters.tsx'
 
 const AssemblyWorkspace = lazy(() => import('./v2/assembly/Workspace.tsx'))
+const Planner = lazy(() => import('./v2/planning/Planner.tsx'))
 
 export function ModeRoot() {
   const mode = new URLSearchParams(location.search).get('mode')
@@ -14,6 +15,9 @@ export function ModeRoot() {
   }
   if (mode === 'assembly') {
     return <Suspense fallback={<p role="status">Loading vehicle assembly…</p>}><AssemblyWorkspace /></Suspense>
+  }
+  if (mode === 'planning') {
+    return <Suspense fallback={<p role="status">Loading mission planning…</p>}><Planner /></Suspense>
   }
   return <Headquarters />
 }

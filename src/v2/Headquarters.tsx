@@ -114,6 +114,7 @@ export function Headquarters() {
           <a className="hq-brand" href="#"><span className="hq-mark"><Icon name="orbit" /></span>MISSION CONTROL</a>
           <nav className="hq-actions" aria-label="Workspaces">
             {save && <a className="hq-nav-link" href="?mode=assembly">Vehicle Assembly</a>}
+            {save && <a className="hq-nav-link" href="?mode=planning">Mission Planning</a>}
             <a className="hq-nav-link" href="?mode=tutorial">CubeSat tutorial <Icon name="arrow" /></a>
           </nav>
         </div>

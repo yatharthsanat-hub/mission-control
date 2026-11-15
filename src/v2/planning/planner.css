@@ -1,0 +1,41 @@
+.planner .hq-shell { width: min(1300px, calc(100% - 36px)); }
+.planner a { color: var(--hq-accent); }
+.planner .hq-brand { color: var(--hq-text); }
+.planner .hq-top-inner { flex-wrap: wrap; padding-block: 10px; }
+.planner .hq-top-inner .hq-actions { margin: 0; }
+.plan-console { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 14px; align-items: start; }
+.plan-agency { display: grid; gap: 4px; text-align: right; overflow-wrap: anywhere; }
+.plan-agency span, .plan-preview figcaption { color: var(--hq-muted); font-size: .82rem; }
+.plan-fields { display: grid; gap: 12px; margin-top: 14px; }
+.plan-fields label { display: grid; gap: 4px; font-size: .88rem; min-width: 0; }
+.plan-fields input, .plan-fields select { width: 100%; }
+.plan-orbit-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 4px; }
+.planner fieldset { min-width: 0; margin-block: 18px 4px; padding: 10px 12px; border: 1px solid var(--hq-border); border-radius: 6px; }
+.planner legend { padding-inline: 6px; }
+.planner fieldset p { margin-top: 8px; }
+.plan-preview { margin: 12px 0; }
+.plan-preview svg { display: block; width: 100%; max-height: 255px; background: #0b1520; }
+.plan-preview figcaption { margin-top: 6px; }
+.plan-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; margin-top: 8px; }
+.plan-metrics div { border-top: 1px solid var(--hq-border); padding-block: 7px; }
+.plan-metrics dd { font: 650 .9rem/1.45 var(--mono); margin-top: 3px; overflow-wrap: anywhere; }
+.plan-findings, .plan-history ul { list-style: none; padding: 0; margin: 8px 0 0; }
+.plan-findings li, .plan-history li { display: flex; align-items: flex-start; gap: 10px; border-top: 1px solid var(--hq-border); padding-block: 9px; }
+.plan-findings li p, .plan-findings li a, .plan-history li p { font-size: .85rem; }
+.plan-status { flex: 0 0 76px; font: 700 .77rem/1.65 var(--mono); }
+.plan-status.pass { color: var(--hq-accent); }
+.plan-status.warning { color: var(--hq-warn); }
+.plan-status.fail { color: #ffb5b2; }
+.plan-history { grid-column: 1 / -1; }
+.plan-history li { justify-content: space-between; flex-wrap: wrap; }
+.plan-history .hq-actions { margin: 0; }
+.plan-id { font-family: var(--mono); }
+@media (max-width: 790px) {
+  .plan-console { grid-template-columns: minmax(0, 1fr); }
+  .plan-agency { text-align: left; }
+}
+@media (max-width: 390px) {
+  .planner .hq-shell { width: calc(100% - 24px); }
+  .planner .hq-panel { padding: 14px; }
+  .plan-orbit-fields { grid-template-columns: minmax(0, 1fr); }
+}

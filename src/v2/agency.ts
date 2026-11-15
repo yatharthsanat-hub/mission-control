@@ -2,7 +2,7 @@ import { assessTraining, research, startingGrantCents, training, trainingCommitm
 import type { PayloadId, TrainingOrbitM } from './training.ts'
 
 type Cents = number & { readonly unit: 'USD cents' }
-type Account = 'agency' | 'training' | 'research'
+type Account = 'agency' | 'training' | 'research' | 'planning'
 
 export interface LedgerEntry {
   id: string
@@ -16,6 +16,7 @@ export interface LedgerEntry {
 export type Command =
   | { id: string; kind: 'fund-training' | 'start-research' | 'advance-day' }
   | { id: string; kind: 'submit-review'; payload: PayloadId; axisM: TrainingOrbitM }
+  | { id: string; kind: 'reserve-mission'; cents: number }
 
 export interface Agency {
   name: string
@@ -78,7 +79,8 @@ export function applyCommand(agency: Agency, command: Command): Agency {
   if (duplicate) {
     if (duplicate.kind !== command.kind ||
       (duplicate.kind === 'submit-review' && command.kind === 'submit-review' &&
-        (duplicate.payload !== command.payload || duplicate.axisM !== command.axisM))) {
+        (duplicate.payload !== command.payload || duplicate.axisM !== command.axisM)) ||
+      (duplicate.kind === 'reserve-mission' && command.kind === 'reserve-mission' && duplicate.cents !== command.cents)) {
       throw new Error('A different transaction already used this identifier.')
     }
     return agency
@@ -91,6 +93,10 @@ export function applyCommand(agency: Agency, command: Command): Agency {
   }
 
   switch (command.kind) {
+    case 'reserve-mission':
+      if (cents(command.cents) === 0 || finances(ledger).available < command.cents) throw new Error('Insufficient available cash or invalid commitment.')
+      add('planning', 'commitment', command.cents, 'Approved Earth observation plan')
+      break
     case 'fund-training':
       if (agency.mission !== 'available') throw new Error('Training funds are already committed or settled.')
       if (finances(ledger).available < trainingCommitmentCents) throw new Error('Insufficient available cash.')

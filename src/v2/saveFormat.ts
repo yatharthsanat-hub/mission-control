@@ -5,6 +5,8 @@ import { orbitModel } from './physics/twoBody.ts'
 import { restoreAssembly } from './assembly/engine.ts'
 import type { Assembly } from './assembly/engine.ts'
 import { partDefinition } from './assembly/catalog.ts'
+import { approvalContext, maxApprovedMissions, restoreMission } from './planning/mission.ts'
+import type { MissionConfiguration } from './planning/mission.ts'
 
 export const maxSaveSize = 500_000
 const catalogRevision = 'earth-training-1'
@@ -14,6 +16,7 @@ export interface Save {
   revision: number
   agency: Agency
   assembly?: Assembly
+  missions?: readonly MissionConfiguration[]
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -41,6 +44,9 @@ function decodeCommand(value: unknown): Command {
     case 'start-research':
     case 'advance-day':
       return { id, kind: input.kind }
+    case 'reserve-mission':
+      if (typeof input.cents !== 'number' || !Number.isSafeInteger(input.cents) || input.cents <= 0) break
+      return { id, kind: input.kind, cents: input.cents }
     case 'submit-review':
       if ((input.payload !== 'visible' && input.payload !== 'multispectral') ||
           (input.axisM !== 7_000_000 && input.axisM !== 7_500_000)) break
@@ -51,9 +57,10 @@ function decodeCommand(value: unknown): Command {
 
 export function encodeSave(save: Save) {
   const payload = JSON.stringify({
-    schemaVersion: save.assembly ? 3 : 2, id: save.id, revision: save.revision, catalogRevision,
+    schemaVersion: save.missions?.length ? 4 : save.assembly ? 3 : 2, id: save.id, revision: save.revision, catalogRevision,
     sourceRegistryRevision, modelRevision: orbitModel.revision,
     name: save.agency.name, commands: save.agency.commands, assembly: save.assembly,
+    missions: save.missions?.length ? save.missions : undefined,
   })
   return JSON.stringify({ payload, checksum: checksum(payload) })
 }
@@ -69,7 +76,8 @@ export function decodeSave(raw: string): Save {
   const input = original.schemaVersion === 1
     ? { ...original, schemaVersion: 2, sourceRegistryRevision, modelRevision: orbitModel.revision }
     : original
-  if (input.schemaVersion !== 2 && input.schemaVersion !== 3) throw new Error('Unsupported save schema version.')
+  if (input.schemaVersion !== 2 && input.schemaVersion !== 3 && input.schemaVersion !== 4) throw new Error('Unsupported save schema version.')
+  if (input.schemaVersion !== 4 && Object.hasOwn(input, 'missions')) throw new Error('Approved missions require agency save schema 4.')
   if (input.catalogRevision !== catalogRevision || input.sourceRegistryRevision !== sourceRegistryRevision ||
     input.modelRevision !== orbitModel.revision) throw new Error('Save requires an unavailable catalog, source registry, or model revision.')
   const id = identifier(input.id)
@@ -80,13 +88,38 @@ export function decodeSave(raw: string): Save {
   if (!Array.isArray(input.commands) || input.commands.length > maxCommands) throw new Error('Invalid command history.')
 
   let agency = createAgency(agencyName(input.name))
+  const missions = new Map<string, MissionConfiguration>()
+  if (input.schemaVersion === 4) {
+    if (!Array.isArray(input.missions) || !input.missions.length || input.missions.length > maxApprovedMissions) {
+      throw new Error('Invalid approved mission history.')
+    }
+    for (const value of input.missions) {
+      const mission = restoreMission(value)
+      if (missions.has(mission.id)) throw new Error('Duplicate approved mission identifier.')
+      missions.set(mission.id, mission)
+    }
+  }
   const applied = new Set<string>()
+  const approved: MissionConfiguration[] = []
   for (const value of input.commands) {
     const command = decodeCommand(value)
     if (applied.has(command.id)) throw new Error('Duplicate transaction in save history.')
+    if (command.kind === 'reserve-mission') {
+      const mission = missions.get(command.id)
+      if (!mission || mission.budget.totalCents !== command.cents) throw new Error('Missing or inconsistent mission commitment.')
+      // An imported or restored agency can have a new local storage identifier.
+      const context = approvalContext(mission.approval.agencyId, agency)
+      if (mission.approval.agencyName !== context.agencyName || mission.approval.programDay !== context.programDay ||
+        mission.approval.availableCents !== context.availableCents || mission.approval.capabilities.join() !== context.capabilities.join() ||
+        (mission.plan.revisedFrom && !approved.some(prior => prior.id === mission.plan.revisedFrom))) {
+        throw new Error('Mission approval does not match its ledger or revision history.')
+      }
+      approved.push(mission)
+    }
     applied.add(command.id)
     agency = applyCommand(agency, command)
   }
+  if (missions.size !== approved.length) throw new Error('An approved mission has no matching commitment.')
   if (input.schemaVersion === 2) return { id, revision, agency }
   const assembly = restoreAssembly(input.assembly)
   const capabilities = unlockedCapabilities(agency)
@@ -94,7 +127,7 @@ export function decodeSave(raw: string): Save {
     const required = partDefinition(part.part).capability
     if (required && !capabilities.includes(required)) throw new Error('Assembly contains a research-locked component.')
   }
-  return { id, revision, agency, assembly }
+  return { id, revision, agency, assembly, ...(approved.length ? { missions: Object.freeze(approved) } : {}) }
 }
 
 export function sameSaveContents(first: string, second: string): boolean {

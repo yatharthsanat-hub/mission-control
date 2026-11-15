@@ -152,6 +152,7 @@ function Workbench({ initial }: { initial: { raw: string; save: Save } }) {
       <header className="assembly-header">
         <div><a href="?">← Agency headquarters</a><h1>Vehicle Assembly</h1></div>
         <div className="assembly-header-actions">
+          <a href="?mode=planning">Mission Planning</a>
           <span>{stored.save.agency.name} · Revision {assembly.revision}{dirty ? ' · Unsaved' : ''}</span>
           <button className="assembly-primary" disabled={!dirty || busy} onClick={() => void saveDraft()}>{busy ? 'Saving…' : 'Save draft'}</button>
         </div>
