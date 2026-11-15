@@ -9,8 +9,15 @@
 .mission-demo p { font-size: .81rem; margin-top: 7px; max-width: 32ch; }
 .mission-button { display: inline-flex; min-height: 44px; align-items: center; gap: 12px; padding: 8px 13px; border: 1px solid var(--control-line); border-radius: 4px; color: var(--accent); font-size: .89rem; font-weight: 650; text-decoration: none; }
 .mission-button:hover { border-color: var(--accent); background: var(--selected); }
-.mission-button.primary { background: var(--accent); color: var(--bg); border-color: transparent; font-weight: 700; }
-.mission-button.primary:hover { background: var(--accent-hover); }
+.mission-demo .mission-button.primary,
+.planner .plan-budget button.hq-primary:enabled {
+  background: var(--execute);
+  color: var(--bg);
+  border-color: transparent;
+  font-weight: 700;
+}
+.mission-demo .mission-button.primary:hover,
+.planner .plan-budget button.hq-primary:enabled:hover { background: var(--execute-hover); }
 .mission-destinations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; }
 .mission-destination { display: grid; grid-template-rows: auto 1fr; border: 1px solid var(--line); border-radius: 5px; min-width: 0; overflow: hidden; background: var(--surface); }
 .mission-art { height: clamp(178px, 23vw, 280px); background: var(--bg); position: relative; overflow: hidden; display: grid; place-items: center; border-bottom: 1px solid var(--line); }
@@ -18,6 +25,7 @@
 .mission-art.moon img { inline-size: min(90%, 330px); }
 .mission-art a { position: absolute; inset: auto 8px 8px auto; color: var(--ink); background: var(--bg); padding: 3px 6px; font-size: .66rem; text-underline-offset: 2px; }
 .mission-details { display: flex; flex-direction: column; align-items: flex-start; padding: clamp(15px, 2.5vw, 27px); gap: 8px; }
+.mission-details > .hq-kicker { border-inline-start: 2px solid var(--execute); padding-inline-start: 8px; }
 .mission-details h2 { font-size: clamp(1.45rem, 3.2vw, 2.6rem); letter-spacing: -.035em; }
 .mission-details p { max-width: 55ch; }
 .mission-details .mission-prerequisite { border-top: 1px solid var(--line); margin-top: auto; padding-top: 9px; align-self: stretch; max-width: none; font-size: .85rem; }
@@ -28,12 +36,24 @@
 .mission-route-note .mission-button { margin-top: 9px; }
 .plan-route { display: flex; flex-wrap: wrap; gap: 8px 18px; border-block: 1px solid var(--line); padding-block: 9px; margin-bottom: 15px; font-size: .86rem; }
 .plan-route a { text-underline-offset: 4px; }
+.planner .plan-rf-check { border-inline-start: 2px solid var(--execute); padding-inline-start: 9px; }
+.assembly-workspace .assembly-placement button.assembly-primary:enabled {
+  background: var(--control);
+  color: var(--execute);
+  border-color: var(--execute);
+}
+.assembly-workspace .assembly-placement button.assembly-primary:enabled:hover {
+  background: var(--execute);
+  color: var(--bg);
+}
 .ops-review-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-block: 14px; border-block: 1px solid var(--line); padding-block: 9px; }
 .ops-review-counts div { display: grid; gap: 4px; }
 .ops-review-counts span { color: var(--muted); font-size: .81rem; }
 .ops-review-counts strong { font: 700 clamp(1rem, 3vw, 1.9rem) var(--mono); }
 .ops-feedback { border-left: 2px solid var(--accent); padding: 6px 8px; font-size: .82rem; }
 .ops-feedback.hq-warn { border-color: var(--amber); }
+.ops-events li.milestone time { color: var(--execute); }
+.ops-review .ops-result-line { border-inline-start: 2px solid var(--execute); padding-inline-start: 9px; }
 @media (max-width: 670px) {
   .mission-intro, .mission-destinations { grid-template-columns: minmax(0, 1fr); }
   .mission-intro { gap: 15px; margin-bottom: 21px; }
